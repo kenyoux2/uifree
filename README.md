@@ -1,4608 +1,4072 @@
---[[
-
-Sirius
-
-© 2024 Sirius 
-All Rights Reserved.
-
---]]
-
-
---[[
-
-Sirius Pre-Hyperion Todo List
-
-High Priority
- - Invisible, Godmode
- - All Scripts buttons and Universal scripts
- - Chat Spam Detection
- - Custom Script Prompts
- - Player Kill, Spectate and ESP via Playerlist
- - http.request support for Sirius Intelligent HTTP Interception
- - Performance Improvements to Roblox itself
- 
-Moderate Priority
- - Spectate Animation, like GTA serverhop, tween to high in the sky, then tween to other player's head
- - Chat Spy Tracking: Follows who they're whispering to based on original message
- - Starlight 
- - Chatlogs
- - GTA Serverhop
- - Anti-Spam (chat) formula, based on text length, caps, emojis etc.
- - Reduce any form of detection of Sirius
- - Automated lowering of graphics on lower FPS, ensure no false positives
- 
-Potential Future Setting Options
- - Block entire domain or just the specific page in the Sirius Intelligent Flow Interception. Do this on case by case, e.g blocked = {"link.com", true} - true being whether its the domain or not
- - Serverhop type (default/gta)
- - Hook Specific Functions to reduce the need for external scripts
- 
---]]
-
--- Ensure the game is loaded 
-if not game:IsLoaded() then
-	game.Loaded:Wait()
-end
-
--- Check License Tier
-local Pro = true -- We're open sourced now!
-
--- Create Variables for Roblox Services
-local coreGui = game:GetService("CoreGui")
-local httpService = game:GetService("HttpService")
-local lighting = game:GetService("Lighting")
-local players = game:GetService("Players")
-local replicatedStorage = game:GetService("ReplicatedStorage")
-local runService = game:GetService("RunService")
-local guiService = game:GetService("GuiService")
-local statsService = game:GetService("Stats")
-local starterGui = game:GetService("StarterGui")
-local teleportService = game:GetService("TeleportService")
-local tweenService = game:GetService("TweenService")
-local userInputService = game:GetService('UserInputService')
-local gameSettings = UserSettings():GetService("UserGameSettings")
-
--- Variables
-local camera = workspace.CurrentCamera
-local getMessage = replicatedStorage:WaitForChild("DefaultChatSystemChatEvents", 1) and replicatedStorage.DefaultChatSystemChatEvents:WaitForChild("OnMessageDoneFiltering", 1)
-local localPlayer = players.LocalPlayer
-local notifications = {}
-local friendsCooldown = 0
-local mouse = localPlayer:GetMouse()
-local promptedDisconnected = false
-local smartBarOpen = false
-local debounce = false
-local searchingForPlayer = false
-local musicQueue = {}
-local currentAudio
-local lowerName = localPlayer.Name:lower()
-local lowerDisplayName = localPlayer.DisplayName:lower()
-local placeId = game.PlaceId
-local jobId = game.JobId
-local checkingForKey = false
-local originalTextValues = {}
-local creatorId = game.CreatorId
-local noclipDefaults = {}
-local movers = {}
-local creatorType = game.CreatorType
-local espContainer = Instance.new("Folder", gethui and gethui() or coreGui)
-local oldVolume = gameSettings.MasterVolume
-
--- Configurable Core Values
-local siriusValues = {
-	siriusVersion = "1.24",
-	siriusName = "Sirius",
-	releaseType = "Stable",
-	siriusFolder = "Sirius",
-	settingsFile = "settings.srs",
-	interfaceAsset = 14183548964,
-	cdn = "https://cdn.sirius.menu/SIRIUS-SCRIPT-CORE-ASSETS/",
-	icons = "https://cdn.sirius.menu/SIRIUS-SCRIPT-CORE-ASSETS/Icons/",
-	enableExperienceSync = false, -- Games are no longer available due to a lack of whitelisting, they may be made open source at a later date, however they are patched as of now and are useless to the end user. Turning this on may introduce "fake functionality".
-	games = {
-		BreakingPoint = {
-			name = "Breaking Point",
-			description = "Players are seated around a table. Their only goal? To be the last one standing. Execute this script to gain an unfair advantage.",
-			id = 648362523,
-			enabled = true,
-			raw = "BreakingPoint",
-			minimumTier = "Free",
-		},
-		MurderMystery2 = {
-			name = "Murder Mystery 2",
-			description = "A murder has occured, will you be the one to find the murderer, or kill your next victim? Execute this script to gain an unfair advantage.",
-			id = 142823291,
-			enabled = true,
-			raw = "MurderMystery2",
-			minimumTier = "Free",
-		},
-		TowerOfHell = {
-			name = "Tower Of Hell",
-			description = "A difficult popular parkouring game, with random levels and modifiers. Execute this script to gain an unfair advantage.",
-			id = 1962086868,
-			enabled = true,
-			raw = "TowerOfHell",
-			minimumTier = "Free",
-		},
-		Strucid = {
-			name = "Strucid",
-			description = "Fight friends and enemies in Strucid with building mechanics! Execute this script to gain an unfair advantage.",
-			id = 2377868063,
-			enabled = true,
-			raw = "Strucid",
-			minimumTier = "Free",
-		},
-		PhantomForces = {
-			name = "Phantom Forces",
-			description = "One of the most popular FPS shooters from the team at StyLiS Studios. Execute this script to gain an unfair advantage.",
-			id = 292439477,
-			enabled = true,
-			raw = "PhantomForces",
-			minimumTier = "Pro",
-		},
-	},
-	rawTree = "https://raw.githubusercontent.com/SiriusSoftwareLtd/Sirius/Sirius/games/",
-	neonModule = "https://raw.githubusercontent.com/shlexware/Sirius/request/library/neon.lua",
-	senseRaw = "https://raw.githubusercontent.com/shlexware/Sirius/request/library/sense/source.lua",
-	executors = {"synapse x", "script-ware", "krnl", "scriptware", "comet", "valyse", "fluxus", "electron", "hydrogen"},
-	disconnectTypes = { {"ban", {"ban", "perm"}}, {"network", {"internet connection", "network"}} },
-	nameGeneration = {
-		adjectives = {"Cool", "Awesome", "Epic", "Ninja", "Super", "Mystic", "Swift", "Golden", "Diamond", "Silver", "Mint", "Roblox", "Amazing"},
-		nouns = {"Player", "Gamer", "Master", "Legend", "Hero", "Ninja", "Wizard", "Champion", "Warrior", "Sorcerer"}
-	},
-	administratorRoles = {"mod","admin","staff","dev","founder","owner","supervis","manager","management","executive","president","chairman","chairwoman","chairperson","director"},
-	transparencyProperties = {
-		UIStroke = {'Transparency'},
-		Frame = {'BackgroundTransparency'},
-		TextButton = {'BackgroundTransparency', 'TextTransparency'},
-		TextLabel = {'BackgroundTransparency', 'TextTransparency'},
-		TextBox = {'BackgroundTransparency', 'TextTransparency'},
-		ImageLabel = {'BackgroundTransparency', 'ImageTransparency'},
-		ImageButton = {'BackgroundTransparency', 'ImageTransparency'},
-		ScrollingFrame = {'BackgroundTransparency', 'ScrollBarImageTransparency'}
-	},
-	buttonPositions = {Character = UDim2.new(0.5, -155, 1, -29), Scripts = UDim2.new(0.5, -122, 1, -29), Playerlist = UDim2.new(0.5, -68, 1, -29)},
-	chatSpy = {
-		enabled = true,
-		visual = {
-			Color = Color3.fromRGB(26, 148, 255),
-			Font = Enum.Font.SourceSansBold,
-			TextSize = 18
-		},
-	},
-	pingProfile = {
-		recentPings = {},
-		adaptiveBaselinePings = {},
-		pingNotificationCooldown = 0,
-		maxSamples = 12, -- max num of recent pings stored
-		spikeThreshold = 1.75, -- high Ping in comparison to average ping (e.g 100 avg would be high at 150)
-		adaptiveBaselineSamples = 30, -- how many samples Sirius takes before deciding on a fixed high ping value
-		adaptiveHighPingThreshold = 120 -- default value
-	},
-	frameProfile = {
-		frameNotificationCooldown = 0,
-		fpsQueueSize = 10,
-		lowFPSThreshold = 20, -- what's low fps!??!?!
-		totalFPS = 0,
-		fpsQueue = {},
-	},
-	actions = {
-		{
-			name = "Noclip",
-			images = {14385986465, 9134787693},
-			color = Color3.fromRGB(0, 170, 127),
-			enabled = false,
-			rotateWhileEnabled = false,
-			callback = function() end,
-		},
-		{
-			name = "Flight",
-			images = {9134755504, 14385992605},
-			color = Color3.fromRGB(170, 37, 46),
-			enabled = false,
-			rotateWhileEnabled = false,
-			callback = function(value)
-				local character = localPlayer.Character
-				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-				if humanoid then
-					humanoid.PlatformStand = value
-				end
-			end,
-		},
-		{
-			name = "Refresh",
-			images = {9134761478, 9134761478},
-			color = Color3.fromRGB(61, 179, 98),
-			enabled = false,
-			rotateWhileEnabled = true,
-			disableAfter = 3,
-			callback = function()
-				task.spawn(function()
-					local character = localPlayer.Character
-					if character then
-						local cframe = character:GetPivot()
-						local humanoid = character:FindFirstChildOfClass("Humanoid")
-						if humanoid then
-							humanoid:ChangeState(Enum.HumanoidStateType.Dead)
-						end
-						character = localPlayer.CharacterAdded:Wait()
-						task.defer(character.PivotTo, character, cframe)
-					end
-				end)
-			end,
-		},
-		{
-			name = "Respawn",
-			images = {9134762943, 9134762943},
-			color = Color3.fromRGB(49, 88, 193),
-			enabled = false,
-			rotateWhileEnabled = true,
-			disableAfter = 2,
-			callback = function()
-				local character = localPlayer.Character
-				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-				if humanoid then
-					humanoid:ChangeState(Enum.HumanoidStateType.Dead)
-				end
-			end,
-		},
-		{
-			name = "Invulnerability",
-			images = {9134765994, 14386216487},
-			color = Color3.fromRGB(193, 46, 90),
-			enabled = false,
-			rotateWhileEnabled = false,
-			callback = function() end,
-		},
-		{
-			name = "Fling",
-			images = {9134785384, 14386226155},
-			color = Color3.fromRGB(184, 85, 61),
-			enabled = false,
-			rotateWhileEnabled = true,
-			callback = function(value)
-				local character = localPlayer.Character
-				local primaryPart = character and character.PrimaryPart
-				if primaryPart then
-					for _, part in ipairs(character:GetDescendants()) do
-						if part:IsA("BasePart") then
-							part.Massless = value
-							part.CustomPhysicalProperties = PhysicalProperties.new(value and math.huge or 0.7, 0.3, 0.5)
-						end
-					end
-
-					primaryPart.Anchored = true
-					primaryPart.AssemblyLinearVelocity = Vector3.zero
-					primaryPart.AssemblyAngularVelocity = Vector3.zero
-
-					movers[3].Parent = value and primaryPart or nil
-
-					task.delay(0.5, function() primaryPart.Anchored = false end)
-				end
-			end,
-		},
-		{
-			name = "Extrasensory Perception",
-			images = {9134780101, 14386232387},
-			color = Color3.fromRGB(214, 182, 19),
-			enabled = false,
-			rotateWhileEnabled = false,
-			callback = function(value)
-				for _, highlight in ipairs(espContainer:GetChildren()) do
-					highlight.Enabled = value
-				end
-			end,
-		},
-		{
-			name = "Night and Day",
-			images = {9134778004, 10137794784},
-			color = Color3.fromRGB(102, 75, 190),
-			enabled = false,
-			rotateWhileEnabled = false,
-			callback = function(value)
-				tweenService:Create(lighting, TweenInfo.new(0.5), { ClockTime = value and 12 or 24 }):Play()
-			end,
-		},
-		{
-			name = "Global Audio",
-			images = {9134774810, 14386246782},
-			color = Color3.fromRGB(202, 103, 58),
-			enabled = false,
-			rotateWhileEnabled = false,
-			callback = function(value)
-				if value then
-					oldVolume = gameSettings.MasterVolume
-					gameSettings.MasterVolume = 0
-				else
-					gameSettings.MasterVolume = oldVolume
-				end
-			end,
-		},
-		{
-			name = "Visibility",
-			images = {14386256326, 9134770786},
-			color = Color3.fromRGB(62, 94, 170),
-			enabled = false,
-			rotateWhileEnabled = false,
-			callback = function() end,
-		},
-	},
-	sliders = {
-		{
-			name = "player speed",
-			color = Color3.fromRGB(44, 153, 93),
-			values = {0, 300},
-			default = 16,
-			value = 16,
-			active = false,
-			callback = function(value)
-				local character = localPlayer.Character
-				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-				if character then
-					humanoid.WalkSpeed = value
-				end
-			end,
-		},
-		{
-			name = "jump power",
-			color = Color3.fromRGB(59, 126, 184),
-			values = {0, 350},
-			default = 50,
-			value = 16,
-			active = false,
-			callback = function(value)
-				local character = localPlayer.Character
-				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-				if character then
-					if humanoid.UseJumpPower then
-						humanoid.JumpPower = value
-					else
-						humanoid.JumpHeight = value
-					end
-				end
-			end,
-		},
-		{
-			name = "flight speed",
-			color = Color3.fromRGB(177, 45, 45),
-			values = {1, 25},
-			default = 3,
-			value = 3,
-			active = false,
-			callback = function(value) end,
-		},
-		{
-			name = "field of view",
-			color = Color3.fromRGB(198, 178, 75),
-			values = {45, 120},
-			default = 70,
-			value = 16,
-			active = false,
-			callback = function(value)
-				tweenService:Create(camera, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), { FieldOfView = value }):Play()
-			end,
-		},
+if getgenv().Tvk then 
+		if game.CoreGui:FindFirstChild("CTE HUB GUI") then for i, v in ipairs(game.CoreGui:GetChildren()) do if v.Name == "CTE HUB GUI" then v:Destroy() end end end
+	end
+	getgenv().Tvk = true
+	
+	local IndexUIColor = {
+		["Border Color"] = Color3.fromRGB(255, 1, 132),
+		["Click Effect Color"] = Color3.fromRGB(230, 230, 230),
+		["Setting Icon Color"] = Color3.fromRGB(230, 230, 230),
+		["Logo Image"] = "rbxassetid://16109161849",
+		["Search Icon Color"] = Color3.fromRGB(255, 255, 255),
+		["Search Icon Highlight Color"] = Color3.fromRGB(255, 180, 180),
+		["GUI Text Color"] = Color3.fromRGB(230, 230, 230),
+		["Text Color"] = Color3.fromRGB(230, 230, 230),
+		["Placeholder Text Color"] = Color3.fromRGB(178, 178, 178),
+		["Title Text Color"] = Color3.fromRGB(255,180,180),
+		["Background 1 Color"] = Color3.fromRGB(43, 43, 43),
+		["Background 1 Transparency"] = 0,
+		["Background 2 Color"] = Color3.fromRGB(90, 90, 90),
+		["Background 3 Color"] = Color3.fromRGB(53, 53, 53),
+		["Background Image"] = "",
+		["Page Selected Color"] = Color3.fromRGB(131, 181, 255),
+		["Section Text Color"] = Color3.fromRGB(255,180,180),
+		["Section Underline Color"] = Color3.fromRGB(255,180,180),
+		["Toggle Border Color"] = Color3.fromRGB(255,180,180),
+		["Toggle Checked Color"] = Color3.fromRGB(230, 230, 230),
+		["Toggle Desc Color"] = Color3.fromRGB(185, 185, 185),
+		["Button Color"] = Color3.fromRGB(131, 181, 255),
+		["Label Color"] = Color3.fromRGB(101, 152, 220),
+		["Dropdown Icon Color"] = Color3.fromRGB(230, 230, 230),
+		["Dropdown Selected Color"] = Color3.fromRGB(131, 181, 255),
+		["Textbox Highlight Color"] = Color3.fromRGB(131, 181, 255),
+		["Box Highlight Color"] = Color3.fromRGB(131, 181, 255),
+		["Slider Line Color"] = Color3.fromRGB(75, 75, 75),
+		["Slider Highlight Color"] = Color3.fromRGB(59, 82, 115),
+		["Tween Animation 1 Speed"] = 0.25,
+		["Tween Animation 2 Speed"] = 0.5,
+		["Tween Animation 3 Speed"] = 0.1,
 	}
-}
-
-local siriusSettings = {
-	{
-		name = 'General',
-		description = 'The general settings for Sirius, from simple to unique features.',
-		color = Color3.new(0.117647, 0.490196, 0.72549),
-		minimumLicense = 'Free',
-		categorySettings = {
-			{
-				name = 'Anonymous Client',
-				description = 'Randomise your username in real-time in any CoreGui parented interface, including Sirius. You will still appear as your actual name to others in-game. This setting can be performance intensive.',
-				settingType = 'Boolean',
-				current = false,
-
-				id = 'anonmode'
-			},
-			{
-				name = 'Chat Spy',
-				description = 'This will only work on the legacy Roblox chat system. Sirius will display whispers usually hidden from you in the chat box.',
-				settingType = 'Boolean',
-				current = true,
-
-				id = 'chatspy'
-			},
-			{
-				name = 'Hide Toggle Button',
-				description = 'This will remove the option to open the smartBar with the toggle button.',
-				settingType = 'Boolean',
-				current = false,
-
-				id = 'hidetoggle'
-			},
-			{
-				name = 'Now Playing Notifications',
-				description = 'When active, Sirius will notify you when the next song in your Music queue plays.',
-				settingType = 'Boolean',
-				current = true,
-
-				id = 'nowplaying'
-			},
-			{
-				name = 'Friend Notifications',
-				settingType = 'Boolean', 
-				current = true,
-
-				id = 'friendnotifs'
-			},
-			{
-				name = 'Load Hidden',
-				settingType = 'Boolean',
-				current = false,
-
-				id = 'loadhidden'
-			}, 
-			{
-				name = 'Startup Sound Effect',
-				settingType = 'Boolean',
-				current = true,
-
-				id = 'startupsound'
-			}, 
-			{
-				name = 'Anti Idle',
-				description = 'Remove all callbacks and events linked to the LocalPlayer Idled state. This may prompt detection from Adonis or similar anti-cheats.',
-				settingType = 'Boolean',
-				current = true,
-
-				id = 'antiidle'
-			},
-			{
-				name = 'Client-Based Anti Kick',
-				description = 'Cancel any kick request involving you sent by the client. This may prompt detection from Adonis or similar anti-cheats. You will need to rejoin and re-run Sirius to toggle.',
-				settingType = 'Boolean',
-				current = false,
-
-				id = 'antikick'
-			},
-			{
-				name = 'Muffle audio while unfocused',
-				settingType = 'Boolean', 
-				current = true,
-
-				id = 'muffleunfocused'
-			},
+	local UpdateCallBack = {}
+	for k,v in pairs(IndexUIColor) do 
+		UpdateCallBack[k] = {}
+	end
+	local SettingsRac = {}
+	for k,v in pairs(IndexUIColor) do 
+		SettingsRac[k] = {
+			Color = v,
+			Rainbow = false,
+			Breathing = {
+				Toggle = false,
+				Color1 = Color3.new(),
+				Color2 = Color3.new()
+			}
 		}
-	},
-	{
-		name = 'Keybinds',
-		description = 'Assign keybinds to actions or change keybinds such as the one to open/close Sirius.',
-		color = Color3.new(0.0941176, 0.686275, 0.509804),
-		minimumLicense = 'Free',
-		categorySettings = {
-			{
-				name = 'Toggle smartBar',
-				settingType = 'Key',
-				current = "K",
-				id = 'smartbar'
-			},
-			{
-				name = 'Open ScriptSearch',
-				settingType = 'Key',
-				current = "T",
-				id = 'scriptsearch'
-			},
-			{
-				name = 'NoClip',
-				settingType = 'Key',
-				current = nil,
-				id = 'noclip',
-				callback = function()
-					local noclip = siriusValues.actions[1]
-					noclip.enabled = not noclip.enabled
-					noclip.callback(noclip.enabled)
-				end
-			},
-			{
-				name = 'Flight',
-				settingType = 'Key',
-				current = nil,
-				id = 'flight',
-				callback = function()
-					local flight = siriusValues.actions[2]
-					flight.enabled = not flight.enabled
-					flight.callback(flight.enabled)
-				end
-			},
-			{
-				name = 'Refresh',
-				settingType = 'Key',
-				current = nil,
-				id = 'refresh',
-				callback = function()
-					local refresh = siriusValues.actions[3]
-					if not refresh.enabled then
-						refresh.enabled = true
-						refresh.callback()
-					end
-				end
-			},
-			{
-				name = 'Respawn',
-				settingType = 'Key',
-				current = nil,
-				id = 'respawn',
-				callback = function()
-					local respawn = siriusValues.actions[4]
-					if not respawn.enabled then
-						respawn.enabled = true
-						respawn.callback()
-					end
-				end
-			},
-			{
-				name = 'Invulnerability',
-				settingType = 'Key',
-				current = nil,
-				id = 'invulnerability',
-				callback = function()
-					local invulnerability = siriusValues.actions[5]
-					invulnerability.enabled = not invulnerability.enabled
-					invulnerability.callback(invulnerability.enabled)
-				end
-			},
-			{
-				name = 'Fling',
-				settingType = 'Key',
-				current = nil,
-				id = 'fling',
-				callback = function()
-					local fling = siriusValues.actions[6]
-					fling.enabled = not fling.enabled
-					fling.callback(fling.enabled)
-				end
-			},
-			{
-				name = 'ESP',
-				settingType = 'Key',
-				current = nil,
-				id = 'esp',
-				callback = function()
-					local esp = siriusValues.actions[7]
-					esp.enabled = not esp.enabled
-					esp.callback(esp.enabled)
-				end
-			},
-			{
-				name = 'Night and Day',
-				settingType = 'Key',
-				current = nil,
-				id = 'nightandday',
-				callback = function()
-					local nightandday = siriusValues.actions[8]
-					nightandday.enabled = not nightandday.enabled
-					nightandday.callback(nightandday.enabled)
-				end
-			},
-			{
-				name = 'Global Audio',
-				settingType = 'Key',
-				current = nil,
-				id = 'globalaudio',
-				callback = function()
-					local globalaudio = siriusValues.actions[9]
-					globalaudio.enabled = not globalaudio.enabled
-					globalaudio.callback(globalaudio.enabled)
-				end
-			},
-			{
-				name = 'Visibility',
-				settingType = 'Key',
-				current = nil,
-				id = 'visibility',
-				callback = function()
-					local visibility = siriusValues.actions[10]
-					visibility.enabled = not visibility.enabled
-					visibility.callback(visibility.enabled)
-				end
-			},
-		}
-	},
-	{
-		name = 'Performance',
-		description = 'Tweak and test your performance settings for Roblox in Sirius.',
-		color = Color3.new(1, 0.376471, 0.168627),
-		minimumLicense = 'Free',
-		categorySettings = {
-			{
-				name = 'Artificial FPS Limit',
-				description = 'Sirius will automatically set your FPS to this number when you are tabbed-in to Roblox.',
-				settingType = 'Number',
-				values = {20, 5000},
-				current = 240,
-
-				id = 'fpscap'
-			},
-			{
-				name = 'Limit FPS while unfocused',
-				description = 'Sirius will automatically set your FPS to 60 when you tab-out or unfocus from Roblox.',
-				settingType = 'Boolean', -- number for the cap below!! with min and max val
-				current = true,
-
-				id = 'fpsunfocused'
-			},
-			{
-				name = 'Adaptive Latency Warning',
-				description = 'Sirius will check your average latency in the background and notify you if your current latency significantly goes above your average latency.',
-				settingType = 'Boolean',
-				current = true,
-
-				id = 'latencynotif'
-			},
-			{
-				name = 'Adaptive Performance Warning',
-				description = 'Sirius will check your average FPS in the background and notify you if your current FPS goes below a specific number.',
-				settingType = 'Boolean',
-				current = true,
-
-				id = 'fpsnotif'
-			},
-		}
-	},
-	{
-		name = 'Detections',
-		description = 'Sirius detects and prevents anything malicious or possibly harmful to your wellbeing.',
-		color = Color3.new(0.705882, 0, 0),
-		minimumLicense = 'Free',
-		categorySettings = {
-			{
-				name = 'Spatial Shield',
-				description = 'Suppress loud sounds played from any audio source in-game, in real-time with Spatial Shield.',
-				settingType = 'Boolean',
-				minimumLicense = 'Pro',
-				current = true,
-
-				id = 'spatialshield'
-			},
-			{
-				name = 'Spatial Shield Threshold',
-				description = 'How loud a sound needs to be to be suppressed.',
-				settingType = 'Number',
-				minimumLicense = 'Pro',
-				values = {100, 1000},
-				current = 300,
-
-				id = 'spatialshieldthreshold'
-			},
-			{
-				name = 'Moderator Detection',
-				description = 'Be notified whenever Sirius detects a player joins your session that could be a game moderator.',
-				settingType = 'Boolean', 
-				minimumLicense = 'Pro',
-				current = true,
-
-				id = 'moddetection'
-			},
-			{
-				name = 'Intelligent HTTP Interception',
-				description = 'Block external HTTP/HTTPS requests from being sent/recieved and ask you before allowing it to run.',
-				settingType = 'Boolean',
-				minimumLicense = 'Essential',
-				current = true,
-
-				id = 'intflowintercept'
-			},
-			{
-				name = 'Intelligent Clipboard Interception',
-				description = 'Block your clipboard from being set and ask you before allowing it to set your clipboard.',
-				settingType = 'Boolean',
-				minimumLicense = 'Essential',
-				current = true,
-
-				id = 'intflowinterceptclip'
-			},
-		},
-	},
-	{
-		name = 'Logging',
-		description = 'Send logs to your specified webhook URL of things like player joins and leaves and messages.',
-		color = Color3.new(0.905882, 0.780392, 0.0666667),
-		minimumLicense = 'Free',
-		categorySettings = {
-			{
-				name = 'Log Messages',
-				description = 'Log messages sent by any player to your webhook.',
-				settingType = 'Boolean',
-				current = false,
-
-				id = 'logmsg'
-			},
-			{
-				name = 'Message Webhook URL',
-				description = 'Discord Webhook URL',
-				settingType = 'Input',
-				current = 'No Webhook',
-
-				id = 'logmsgurl'
-			},
-			{
-				name = 'Log PlayerAdded and PlayerRemoving',
-				description = 'Log whenever any player leaves or joins your session.',
-				settingType = 'Boolean',
-				current = false,
-
-				id = 'logplrjoinleave'
-			},
-			{
-				name = 'Player Added and Removing Webhook URL',
-				description = 'Discord Webhook URL',
-				settingType = 'Input',
-				current = 'No Webhook',
-
-				id = 'logplrjoinleaveurl'
-			},
-		}
-	},
-}
-
--- Generate random username
-local randomAdjective = siriusValues.nameGeneration.adjectives[math.random(1, #siriusValues.nameGeneration.adjectives)]
-local randomNoun = siriusValues.nameGeneration.nouns[math.random(1, #siriusValues.nameGeneration.nouns)]
-local randomNumber = math.random(100, 3999) -- You can customize the range
-local randomUsername = randomAdjective .. randomNoun .. randomNumber
-
--- Initialise Sirius Client Interface
-local guiParent = gethui and gethui() or coreGui
-local sirius = guiParent:FindFirstChild("Sirius")
-if sirius then
-	sirius:Destroy()
-end
-
-local UI = game:GetObjects('rbxassetid://'..siriusValues.interfaceAsset)[1]
-UI.Name = siriusValues.siriusName
-UI.Parent = guiParent
-UI.Enabled = false
-
--- Create Variables for Interface Elements
-local characterPanel = UI.Character
-local customScriptPrompt = UI.CustomScriptPrompt
-local securityPrompt = UI.SecurityPrompt
-local disconnectedPrompt = UI.Disconnected
-local gameDetectionPrompt = UI.GameDetection
-local homeContainer = UI.Home
-local moderatorDetectionPrompt = UI.ModeratorDetectionPrompt
-local musicPanel = UI.Music
-local notificationContainer = UI.Notifications
-local playerlistPanel = UI.Playerlist
-local scriptSearch = UI.ScriptSearch
-local scriptsPanel = UI.Scripts
-local settingsPanel = UI.Settings
-local smartBar = UI.SmartBar
-local toggle = UI.Toggle
-local starlight = UI.Starlight
-local toastsContainer = UI.Toasts
-
--- Interface Caching
-if not getgenv().cachedInGameUI then getgenv().cachedInGameUI = {} end
-if not getgenv().cachedCoreUI then getgenv().cachedCoreUI = {} end
-
--- Malicious Behavior Prevention
-local indexSetClipboard = "setclipboard"
-local originalSetClipboard = getgenv()[indexSetClipboard]
-
-local index = http_request and "http_request" or "request"
-local originalRequest = getgenv()[index]
-
--- put this into siriusValues, like the fps and ping shit
-local suppressedSounds = {}
-local soundSuppressionNotificationCooldown = 0
-local soundInstances = {}
-local cachedIds = {}
-local cachedText = {}
-
-if not getMessage then siriusValues.chatSpy.enabled = false end
-
--- Call External Modules
-
--- httpRequest
-local httpRequest = originalRequest
-
--- Neon Module
-local neonModule = (function() -- Open sourced neon module
-	local module = {}
-	do
-		local function IsNotNaN(x)
-			return x == x
-		end
-		local continued = IsNotNaN(camera:ScreenPointToRay(0,0).Origin.x)
-		while not continued do
-			runService.RenderStepped:wait()
-			continued = IsNotNaN(camera:ScreenPointToRay(0,0).Origin.x)
-		end
 	end
-
-	local RootParent = camera
-	local root
-	local binds = {}
-
-	local function getRoot()
-		if root then 
-			return root
-		else
-			root = Instance.new('Folder', RootParent)
-			root.Name = 'neon'
-			return root
-		end
+	local function Rac(color)
+		return {math.floor(color.r * 255), math.floor(color.g * 255), math.floor(color.b * 255), "Dit"}
 	end
-
-	local function destroyRoot()
-		if root then 
-			root:Destroy()
-			root = nil
-		end
-	end
-
-	local GenUid; do
-		local id = 0
-		function GenUid()
-			id = id + 1
-			return 'neon::'..tostring(id)
-		end
-	end
-
-	local DrawQuad; do
-		local acos, max, pi, sqrt = math.acos, math.max, math.pi, math.sqrt
-		local sz = 0.2
-
-		local function DrawTriangle(v1, v2, v3, p0, p1)
-			local s1 = (v1 - v2).magnitude
-			local s2 = (v2 - v3).magnitude
-			local s3 = (v3 - v1).magnitude
-			local smax = max(s1, s2, s3)
-			local A, B, C
-			if s1 == smax then
-				A, B, C = v1, v2, v3
-			elseif s2 == smax then
-				A, B, C = v2, v3, v1
-			elseif s3 == smax then
-				A, B, C = v3, v1, v2
-			end
-
-			local para = ( (B-A).x*(C-A).x + (B-A).y*(C-A).y + (B-A).z*(C-A).z ) / (A-B).magnitude
-			local perp = sqrt((C-A).magnitude^2 - para*para)
-			local dif_para = (A - B).magnitude - para
-
-			local st = CFrame.new(B, A)
-			local za = CFrame.Angles(pi/2,0,0)
-
-			local cf0 = st
-
-			local Top_Look = (cf0 * za).lookVector
-			local Mid_Point = A + CFrame.new(A, B).LookVector * para
-			local Needed_Look = CFrame.new(Mid_Point, C).LookVector
-			local dot = Top_Look.x*Needed_Look.x + Top_Look.y*Needed_Look.y + Top_Look.z*Needed_Look.z
-
-			local ac = CFrame.Angles(0, 0, acos(dot))
-
-			cf0 = cf0 * ac
-			if ((cf0 * za).lookVector - Needed_Look).magnitude > 0.01 then
-				cf0 = cf0 * CFrame.Angles(0, 0, -2*acos(dot))
-			end
-			cf0 = cf0 * CFrame.new(0, perp/2, -(dif_para + para/2))
-
-			local cf1 = st * ac * CFrame.Angles(0, pi, 0)
-			if ((cf1 * za).lookVector - Needed_Look).magnitude > 0.01 then
-				cf1 = cf1 * CFrame.Angles(0, 0, 2*acos(dot))
-			end
-			cf1 = cf1 * CFrame.new(0, perp/2, dif_para/2)
-
-			if not p0 then
-				p0 = Instance.new('Part')
-				p0.FormFactor = 'Custom'
-				p0.TopSurface = 0
-				p0.BottomSurface = 0
-				p0.Anchored = true
-				p0.CanCollide = false
-				p0.Material = 'Glass'
-				p0.Size = Vector3.new(sz, sz, sz)
-				local mesh = Instance.new('SpecialMesh', p0)
-				mesh.MeshType = 2
-				mesh.Name = 'WedgeMesh'
-			end
-			p0.WedgeMesh.Scale = Vector3.new(0, perp/sz, para/sz)
-			p0.CFrame = cf0
-
-			if not p1 then
-				p1 = p0:clone()
-			end
-			p1.WedgeMesh.Scale = Vector3.new(0, perp/sz, dif_para/sz)
-			p1.CFrame = cf1
-
-			return p0, p1
-		end
-
-		function DrawQuad(v1, v2, v3, v4, parts)
-			parts[1], parts[2] = DrawTriangle(v1, v2, v3, parts[1], parts[2])
-			parts[3], parts[4] = DrawTriangle(v3, v2, v4, parts[3], parts[4])
-		end
-	end
-
-	function module:BindFrame(frame, properties)
-		if binds[frame] then
-			return binds[frame].parts
-		end
-
-		local uid = GenUid()
-		local parts = {}
-		local f = Instance.new('Folder', getRoot())
-		f.Name = frame.Name
-
-		local parents = {}
-		do
-			local function add(child)
-				if child:IsA'GuiObject' then
-					parents[#parents + 1] = child
-					add(child.Parent)
-				end
-			end
-			add(frame)
-		end
-
-		local function UpdateOrientation(fetchProps)
-			local zIndex = 1 - 0.05*frame.ZIndex
-			local tl, br = frame.AbsolutePosition, frame.AbsolutePosition + frame.AbsoluteSize
-			local tr, bl = Vector2.new(br.x, tl.y), Vector2.new(tl.x, br.y)
-			do
-				local rot = 0
-				for _, v in ipairs(parents) do
-					rot = rot + v.Rotation
-				end
-				if rot ~= 0 and rot%180 ~= 0 then
-					local mid = tl:lerp(br, 0.5)
-					local s, c = math.sin(math.rad(rot)), math.cos(math.rad(rot))
-					local vec = tl
-					tl = Vector2.new(c*(tl.x - mid.x) - s*(tl.y - mid.y), s*(tl.x - mid.x) + c*(tl.y - mid.y)) + mid
-					tr = Vector2.new(c*(tr.x - mid.x) - s*(tr.y - mid.y), s*(tr.x - mid.x) + c*(tr.y - mid.y)) + mid
-					bl = Vector2.new(c*(bl.x - mid.x) - s*(bl.y - mid.y), s*(bl.x - mid.x) + c*(bl.y - mid.y)) + mid
-					br = Vector2.new(c*(br.x - mid.x) - s*(br.y - mid.y), s*(br.x - mid.x) + c*(br.y - mid.y)) + mid
-				end
-			end
-			DrawQuad(
-				camera:ScreenPointToRay(tl.x, tl.y, zIndex).Origin, 
-				camera:ScreenPointToRay(tr.x, tr.y, zIndex).Origin, 
-				camera:ScreenPointToRay(bl.x, bl.y, zIndex).Origin, 
-				camera:ScreenPointToRay(br.x, br.y, zIndex).Origin, 
-				parts
-			)
-			if fetchProps then
-				for _, pt in pairs(parts) do
-					pt.Parent = f
-				end
-				for propName, propValue in pairs(properties) do
-					for _, pt in pairs(parts) do
-						pt[propName] = propValue
-					end
-				end
-			end
-		end
-
-		UpdateOrientation(true)
-		runService:BindToRenderStep(uid, 2000, UpdateOrientation)
-
-		binds[frame] = {
-			uid = uid,
-			parts = parts
-		}
-		return binds[frame].parts
-	end
-
-	function module:Modify(frame, properties)
-		local parts = module:GetBoundParts(frame)
-		if parts then
-			for propName, propValue in pairs(properties) do
-				for _, pt in pairs(parts) do
-					pt[propName] = propValue
-				end
-			end
-		end
-	end
-
-	function module:UnbindFrame(frame)
-		if RootParent == nil then return end
-		local cb = binds[frame]
-		if cb then
-			runService:UnbindFromRenderStep(cb.uid)
-			for _, v in pairs(cb.parts) do
-				v:Destroy()
-			end
-			binds[frame] = nil
-		end
-		if getRoot():FindFirstChild(frame.Name) then
-			getRoot()[frame.Name]:Destroy()
-		end
-	end
-
-	function module:HasBinding(frame)
-		return binds[frame] ~= nil
-	end
-
-	function module:GetBoundParts(frame)
-		return binds[frame] and binds[frame].parts
-	end
-
-
-	return module
-
-end)()
-
--- Sirius Functions
-local function checkSirius() return UI.Parent end
-local function getPing() return math.clamp(statsService.Network.ServerStatsItem["Data Ping"]:GetValue(), 10, 700) end
-local function checkFolder() if isfolder then if not isfolder(siriusValues.siriusFolder) then makefolder(siriusValues.siriusFolder) end if not isfolder(siriusValues.siriusFolder.."/Music") then makefolder(siriusValues.siriusFolder.."/Music") writefile(siriusValues.siriusFolder.."/Music/readme.txt", "Hey there! Place your MP3 or other audio files in this folder, and have the ability to play them through the Sirius Music UI!") end if not isfolder(siriusValues.siriusFolder.."/Assets/Icons") then makefolder(siriusValues.siriusFolder.."/Assets/Icons") end if not isfolder(siriusValues.siriusFolder.."/Assets") then makefolder(siriusValues.siriusFolder.."/Assets") end end end
-local function isPanel(name) return not table.find({"Home", "Music", "Settings"}, name) end
-
-local function fetchFromCDN(path, write, savePath)
-	checkFolder()
-
-	local file = game:HttpGet(siriusValues.cdn..path) or nil
-	if not file then return end
-	if not write then return file end
-
-
-	writefile(siriusValues.siriusFolder.."/"..savePath, file)
-
-	return
-end
-
-local function fetchIcon(iconName)
-	checkFolder()
-
-	local pathCDN = siriusValues.icons..iconName..".png"
-	local path = siriusValues.siriusFolder.."/Assets/"..iconName..".png"
-
-	if not isfile(path) then
-		local file = game:HttpGet(pathCDN)
-		if not file then return end
-
-		writefile(path, file)
-	end
-	
-	local imageToReturn = getcustomasset(path)
-
-	return imageToReturn
-end
-
-local function storeOriginalText(element)
-	originalTextValues[element] = element.Text
-end
-
-local function undoAnonymousChanges()
-	for element, originalText in pairs(originalTextValues) do
-		element.Text = originalText
-	end
-end
-
-local function createEsp(player)
-	if player == localPlayer or not checkSirius() then 
-		return
-	end
-
-	local highlight = Instance.new("Highlight")
-	highlight.FillTransparency = 1
-	highlight.OutlineTransparency = 0
-	highlight.OutlineColor = Color3.new(1,1,1)
-	highlight.Adornee = player.Character
-	highlight.Name = player.Name
-	highlight.Enabled = siriusValues.actions[7].enabled
-	highlight.Parent = espContainer
-
-	player.CharacterAdded:Connect(function(character)
-		if not checkSirius() then return end
-		task.wait()
-		highlight.Adornee = character
-	end)
-end
-
-local function makeDraggable(object)
-	local dragging = false
-	local relative = nil
-
-	local offset = Vector2.zero
-	local screenGui = object:FindFirstAncestorWhichIsA("ScreenGui")
-	if screenGui and screenGui.IgnoreGuiInset then
-		offset += guiService:GetGuiInset()
-	end
-
-	object.InputBegan:Connect(function(input, processed)
-		if processed then return end
-
-		local inputType = input.UserInputType.Name
-		if inputType == "MouseButton1" or inputType == "Touch" then
-			relative = object.AbsolutePosition + object.AbsoluteSize * object.AnchorPoint - userInputService:GetMouseLocation()
-			dragging = true
-		end
-	end)
-
-	local inputEnded = userInputService.InputEnded:Connect(function(input)
-		if not dragging then return end
-
-		local inputType = input.UserInputType.Name
-		if inputType == "MouseButton1" or inputType == "Touch" then
-			dragging = false
-		end
-	end)
-
-	local renderStepped = runService.RenderStepped:Connect(function()
-		if dragging then
-			local position = userInputService:GetMouseLocation() + relative + offset
-			object.Position = UDim2.fromOffset(position.X, position.Y)
-		end
-	end)
-
-	object.Destroying:Connect(function()
-		inputEnded:Disconnect()
-		renderStepped:Disconnect()
-	end)
-end
-
-local function checkAction(target)
-	local toReturn = {}
-
-	for _, action in ipairs(siriusValues.actions) do
-		if action.name == target then
-			toReturn.action = action
-			break
-		end
-	end
-
-	for _, action in ipairs(characterPanel.Interactions.Grid:GetChildren()) do
-		if action.name == target then
-			toReturn.object = action
-			break
-		end
-	end
-
-	return toReturn
-end
-
-local function checkSetting(settingTarget, categoryTarget)
-	for _, category in ipairs(siriusSettings) do
-		if categoryTarget then
-			if category.name == categoryTarget then
-				for _, setting in ipairs(category.categorySettings) do
-					if setting.name == settingTarget then
-						return setting
-					end
-				end
-			end
-			return
-		else
-			for _, setting in ipairs(category.categorySettings) do
-				if setting.name == settingTarget then
-					return setting
-				end
-			end
-		end
-	end
-end
-
-local function wipeTransparency(ins, target, checkSelf, tween, duration)
-	local transparencyProperties = siriusValues.transparencyProperties
-
-	local function applyTransparency(obj)
-		local properties = transparencyProperties[obj.className]
-
-		if properties then
-			local tweenProperties = {}
-
-			for _, property in ipairs(properties) do
-				tweenProperties[property] = target
-			end
-
-			for property, transparency in pairs(tweenProperties) do
-				if tween then
-					tweenService:Create(obj, TweenInfo.new(duration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {[property] = transparency}):Play()
-				else
-					obj[property] = transparency
-				end
-				
-			end
-		end
-	end
-
-	if checkSelf then
-		applyTransparency(ins)
-	end
-
-	for _, descendant in ipairs(ins:getDescendants()) do
-		applyTransparency(descendant)
-	end
-end
-
-local function blurSignature(value)
-	if not value then
-		if lighting:FindFirstChild("SiriusBlur") then
-			lighting:FindFirstChild("SiriusBlur"):Destroy()
-		end
-	else
-		if not lighting:FindFirstChild("SiriusBlur") then
-			local blurLight = Instance.new("DepthOfFieldEffect", lighting)
-			blurLight.Name = "SiriusBlur"
-			blurLight.Enabled = true
-			blurLight.FarIntensity = 0
-			blurLight.FocusDistance = 51.6
-			blurLight.InFocusRadius = 50
-			blurLight.NearIntensity = 0.8
-		end
-	end
-end
-
-local function figureNotifications()
-	if checkSirius() then
-		local notificationsSize = 0
-
-		if #notifications > 0 then
-			blurSignature(true)
-		else
-			blurSignature(false)
-		end
-
-		for i = #notifications, 0, -1 do
-			local notification = notifications[i]
-			if notification then
-				if notificationsSize == 0 then
-					notificationsSize = notification.Size.Y.Offset + 2
-				else
-					notificationsSize += notification.Size.Y.Offset + 5
-				end
-				local desiredPosition = UDim2.new(0.5, 0, 0, notificationsSize)
-				if notification.Position ~= desiredPosition then
-					notification:TweenPosition(desiredPosition, "Out", "Quint", 0.8, true)
-				end
-			end
-		end	
-	end
-end
-
-local contentProvider = game:GetService("ContentProvider")
-
-local function queueNotification(Title, Description, Image)
-	task.spawn(function()		
-		if checkSirius() then
-			local newNotification = notificationContainer.Template:Clone()
-			newNotification.Parent = notificationContainer
-			newNotification.Name = Title or "Unknown Title"
-			newNotification.Visible = true
-
-			newNotification.Title.Text = Title or "Unknown Title"
-			newNotification.Description.Text = Description or "Unknown Description"
-			newNotification.Time.Text = "now"
-			
-			-- Prepare for animation
-			newNotification.AnchorPoint = Vector2.new(0.5, 1)
-			newNotification.Position = UDim2.new(0.5, 0, -1, 0)
-			newNotification.Size = UDim2.new(0, 320, 0, 500)
-			newNotification.Description.Size = UDim2.new(0, 241, 0, 400)
-			wipeTransparency(newNotification, 1, true)
-
-			newNotification.Description.Size = UDim2.new(0, 241, 0, newNotification.Description.TextBounds.Y)
-			newNotification.Size = UDim2.new(0, 100, 0, newNotification.Description.TextBounds.Y + 50)
-
-			table.insert(notifications, newNotification)
-			figureNotifications()
-
-			local notificationSound = Instance.new("Sound")
-			notificationSound.Parent = UI
-			notificationSound.SoundId = "rbxassetid://255881176"
-			notificationSound.Name = "notificationSound"
-			notificationSound.Volume = 0.65
-			notificationSound.PlayOnRemove = true
-			notificationSound:Destroy()
-			
-			
-			if not tonumber(Image) then
-				newNotification.Icon.Image = fetchIcon(Image)
+	function CorrectTable(tabl)
+		local ret = {}
+		for k, v in pairs(tabl) do 
+			if typeof(v) == "Color3" then 
+				ret[k] = Rac(v)
+			elseif type(v) == "table" then
+				ret[k] = CorrectTable(v)
 			else
-				newNotification.Icon.Image = 'rbxassetid://'..Image or 0
+				ret[k] = v
 			end
-			
-			newNotification:TweenPosition(UDim2.new(0.5, 0, 0, newNotification.Size.Y.Offset + 2), "Out", "Quint", 0.9, true)
-			task.wait(0.1)
-			tweenService:Create(newNotification, TweenInfo.new(0.8, Enum.EasingStyle.Exponential), {Size = UDim2.new(0, 320, 0, newNotification.Description.TextBounds.Y + 50)}):Play()
-			task.wait(0.05)
-			tweenService:Create(newNotification, TweenInfo.new(0.8, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.35}):Play()
-			tweenService:Create(newNotification.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {Transparency = 0.7}):Play()
-			task.wait(0.05)
-			tweenService:Create(newNotification.Icon, TweenInfo.new(0.5, Enum.EasingStyle.Exponential), {ImageTransparency = 0}):Play()
-			task.wait(0.04)
-			tweenService:Create(newNotification.Title, TweenInfo.new(0.5, Enum.EasingStyle.Exponential), {TextTransparency = 0}):Play()
-			task.wait(0.04)
-			tweenService:Create(newNotification.Description, TweenInfo.new(0.5, Enum.EasingStyle.Exponential), {TextTransparency = 0.15}):Play()
-			tweenService:Create(newNotification.Time, TweenInfo.new(0.5, Enum.EasingStyle.Exponential), {TextTransparency = 0.5}):Play()
-
-			neonModule:BindFrame(newNotification.BlurModule, {
-				Transparency = 0.98,
-				BrickColor = BrickColor.new("Institutional white")
-			})
-			
-			newNotification.Interact.MouseButton1Click:Connect(function()
-				local foundNotification = table.find(notifications, newNotification)
-				if foundNotification then table.remove(notifications, foundNotification) end
-
-				tweenService:Create(newNotification, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {Position = UDim2.new(1.5, 0, 0, newNotification.Position.Y.Offset)}):Play()
-
-				task.wait(0.4)
-				newNotification:Destroy()
-				figureNotifications()
-				return
-			end)
-
-			local waitTime = (#newNotification.Description.Text*0.1)+2
-			if waitTime <= 1 then waitTime = 2.5 elseif waitTime > 10 then waitTime = 10 end
-
-			task.wait(waitTime)
-
-			local foundNotification = table.find(notifications, newNotification)
-			if foundNotification then table.remove(notifications, foundNotification) end
-
-			tweenService:Create(newNotification, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {Position = UDim2.new(1.5, 0, 0, newNotification.Position.Y.Offset)}):Play()
-
-			task.wait(1.2)
-			neonModule:UnbindFrame(newNotification.BlurModule)
-			newNotification:Destroy()
-			figureNotifications()
 		end
-	end)
-end
-
-local function checkLastVersion()
-	checkFolder()
-
-	local lastVersion = isfile and isfile(siriusValues.siriusFolder.."/".."version.srs") and readfile(siriusValues.siriusFolder.."/".."version.srs") or nil
-
-	if lastVersion then
-		if lastVersion ~= siriusValues.siriusVersion then queueNotification("Sirius has been updated", "Sirius has been updated to version "..siriusValues.siriusVersion..", check our Discord for all new features and changes.", 4400701828)  end
+		return ret
 	end
-
-	if writefile then writefile(siriusValues.siriusFolder.."/".."version.srs", siriusValues.siriusVersion) end
-end
-
-local function removeReverbs(timing)
-	timing = timing or 0.65
-
-	for index, sound in next, soundInstances do
-		if sound:FindFirstChild("SiriusAudioProfile") then
-			local reverb = sound:FindFirstChild("SiriusAudioProfile")
-			tweenService:Create(reverb, TweenInfo.new(timing, Enum.EasingStyle.Exponential), {HighGain = 0}):Play()
-			tweenService:Create(reverb, TweenInfo.new(timing, Enum.EasingStyle.Exponential), {LowGain = 0}):Play()
-			tweenService:Create(reverb, TweenInfo.new(timing, Enum.EasingStyle.Exponential), {MidGain = 0}):Play()
-
-			task.delay(timing + 0.03, reverb.Destroy, reverb)
-		end
-	end
-end
-
-local function playNext()
-	if #musicQueue == 0 then currentAudio.Playing = false currentAudio.SoundId = "" musicPanel.Playing.Text = "Not Playing" return end
-
-	if not currentAudio then
-		local newAudio = Instance.new("Sound")
-		newAudio.Parent = UI
-		newAudio.Name = "Audio"
-		currentAudio = newAudio
-	end
-	
-	musicPanel.Menu.TogglePlaying.ImageRectOffset = currentAudio.Playing and Vector2.new(804, 124) or Vector2.new(764, 244)
-	local asset = getcustomasset(siriusValues.siriusFolder.."/Music/"..musicQueue[1].sound)
-
-	if checkSetting("Now Playing Notifications").current then queueNotification("Now Playing", musicQueue[1].sound, 4400695581) end
-
-	if musicPanel.Queue.List:FindFirstChild(tostring(musicQueue[1].instanceName)) then
-		musicPanel.Queue.List:FindFirstChild(tostring(musicQueue[1].instanceName)):Destroy()
-	end
-
-	currentAudio.SoundId = asset
-	musicPanel.Playing.Text = musicQueue[1].sound
-	currentAudio:Play()
-	musicPanel.Menu.TogglePlaying.ImageRectOffset = currentAudio.Playing and Vector2.new(804, 124) or Vector2.new(764, 244)
-	currentAudio.Ended:Wait()
-
-	table.remove(musicQueue, 1)
-
-	playNext()
-end
-
-local function addToQueue(file)
-	if not getcustomasset then return end
-	checkFolder()
-	if not isfile(siriusValues.siriusFolder.."/Music/"..file) then queueNotification("Unable to locate file", "Please ensure that your audio file is in the Sirius/Music folder and that you are including the file extension (e.g mp3 or ogg).", 4370341699) return end
-	musicPanel.AddBox.Input.Text = ""
-
-	local newAudio = musicPanel.Queue.List.Template:Clone()
-	newAudio.Parent = musicPanel.Queue.List
-	newAudio.Size = UDim2.new(0, 254, 0, 40)
-	newAudio.Close.ImageTransparency = 1
-	newAudio.Name = file
-	if string.len(newAudio.FileName.Text) > 26 then
-		newAudio.FileName.Text = string.sub(tostring(file), 1,24)..".."
-	else
-		newAudio.FileName.Text = file
-	end
-	newAudio.Visible = true
-	newAudio.Duration.Text = ""
-	
-	table.insert(musicQueue, {sound = file, instanceName = newAudio.Name})
-	
-	local getLength = Instance.new("Sound", workspace)
-	getLength.SoundId = getcustomasset(siriusValues.siriusFolder.."/Music/"..file)
-	getLength.Volume = 0
-	getLength:Play()
-	task.wait(0.05)
-	newAudio.Duration.Text = tostring(math.round(getLength.TimeLength)).."s"
-	getLength:Stop()
-	getLength:Destroy()
-	
-	newAudio.MouseEnter:Connect(function()
-		tweenService:Create(newAudio, TweenInfo.new(0.45, Enum.EasingStyle.Exponential), {BackgroundColor3 = Color3.fromRGB(100, 100, 100)}):Play()
-		tweenService:Create(newAudio.Close, TweenInfo.new(0.45, Enum.EasingStyle.Exponential), {ImageTransparency = 0}):Play()
-		tweenService:Create(newAudio.Duration, TweenInfo.new(0.45, Enum.EasingStyle.Exponential), {TextTransparency = 1}):Play()
-	end)
-
-	newAudio.MouseLeave:Connect(function()
-		tweenService:Create(newAudio.Close, TweenInfo.new(0.45, Enum.EasingStyle.Exponential), {ImageTransparency = 1}):Play()
-		tweenService:Create(newAudio, TweenInfo.new(0.45, Enum.EasingStyle.Exponential), {BackgroundColor3 = Color3.fromRGB(0, 0, 0)}):Play()
-		tweenService:Create(newAudio.Duration, TweenInfo.new(0.45, Enum.EasingStyle.Exponential), {TextTransparency = 0.7}):Play()
-	end)
-
-	newAudio.Close.MouseButton1Click:Connect(function()
-		if not string.find(currentAudio.Name, file) then
-			for i,v in pairs(musicQueue) do
-				for _,b in pairs(v) do
-					if b == newAudio.Name then
-						newAudio:Destroy()
-						table.remove(musicQueue, i)
-					end
-				end
+	function DCorrectTable(tabl)
+		local ret = {}
+		for k,v in pairs(tabl) do 
+			if type(v) == "table" and v[4] == "Dit" then 
+				ret[k] = Color3.fromRGB(unpack(v))
+			elseif type(v) == "table" then
+				ret[k] = DCorrectTable(v)
+			else
+				ret[k] = v
 			end
+		end
+		return ret
+	end
+	local HttpService = game:GetService("HttpService")
+	local SaveCustomFileName = "!CustomUI.json"
+	 
+	
+	function SaveCustomUISettings()
+		local HttpService = game:GetService("HttpService")
+		if not isfolder("CTE HUB") then
+			makefolder("CTE HUB")
+		end
+		writefile("CTE HUB/" .. SaveCustomFileName, HttpService:JSONEncode(CorrectTable(SettingsRac)))
+	end
+	
+	function ReadCustomUISetting() 
+		local s,e = pcall(function() 
+			local HttpService = game:GetService("HttpService")
+			if not isfolder("CTE HUB") then
+				makefolder("CTE HUB")
+			end
+			return HttpService:JSONDecode(readfile("CTE HUB/" .. SaveCustomFileName))
+		end)
+		if s then return e 
 		else
-			for i,v in pairs(musicQueue) do
-				for _,b in pairs(v) do
-					if b == newAudio.Name then
-						newAudio:Destroy()
-						table.remove(musicQueue, i)
-						playNext()
-					end
-				end
-			end
-		end
-	end)
-
-	if #musicQueue == 1 then
-		playNext()
-	end
-end
-
-local function openMusic()
-	debounce = true
-	musicPanel.Visible = true
-	musicPanel.Queue.List.Template.Visible = false
-
-	debounce = false
-end
-
-local function closeMusic()
-	debounce = true
-	musicPanel.Visible = false
-
-	debounce = false
-end
-
-local function createReverb(timing)
-	for index, sound in next, soundInstances do
-		if not sound:FindFirstChild("SiriusAudioProfile") then
-			local reverb = Instance.new("EqualizerSoundEffect")
-
-			reverb.Name = "SiriusAudioProfile"
-			reverb.Parent = sound
-
-			reverb.Enabled = false
-
-			reverb.HighGain = 0
-			reverb.LowGain = 0
-			reverb.MidGain = 0
-			reverb.Enabled = true
-
-			if timing then
-				tweenService:Create(reverb, TweenInfo.new(timing, Enum.EasingStyle.Exponential), {HighGain = -20}):Play()
-				tweenService:Create(reverb, TweenInfo.new(timing, Enum.EasingStyle.Exponential), {LowGain = 5}):Play()
-				tweenService:Create(reverb, TweenInfo.new(timing, Enum.EasingStyle.Exponential), {MidGain = -20}):Play()
-			end
+			SaveCustomUISettings()
+			return ReadCustomUISetting()
 		end
 	end
-end
-
-local function runScript(raw)
-	loadstring(game:HttpGet(raw))()
-end
-
-local function syncExperienceInformation()
-	siriusValues.currentCreator = creatorId
-
-	if creatorType == Enum.CreatorType.Group then
-		siriusValues.currentGroup = creatorId
-		siriusValues.currentCreator = "group"
+	SettingsRac=DCorrectTable(ReadCustomUISetting())
+	for k,v in pairs(SettingsRac) do 
+		IndexUIColor[k]=v.Color
 	end
-
-	for _, gameFound in pairs(siriusValues.games) do
-		if gameFound.id == placeId and gameFound.enabled then
-
-			local minimumTier = gameFound.minimumTier
-
-			if minimumTier == "Essential" then
-				if not (Essential or Pro) then
-					return
-				end
-			elseif minimumTier == "Pro" then
-				if not Pro then
-					return
-				end
-			end
-
-			local rawFile = siriusValues.rawTree..gameFound.raw
-			siriusValues.currentGame = gameFound
-
-			gameDetectionPrompt.ScriptTitle.Text = gameFound.name
-			gameDetectionPrompt.Layer.ScriptSubtitle.Text = gameFound.description
-			gameDetectionPrompt.Thumbnail.Image = "https://assetgame.roblox.com/Game/Tools/ThumbnailAsset.ashx?aid="..tostring(placeId).."&fmt=png&wd=420&ht=420"
-
-			gameDetectionPrompt.Size = UDim2.new(0, 550, 0, 0)
-			gameDetectionPrompt.Position = UDim2.new(0.5, 0, 0, 120)
-			gameDetectionPrompt.UICorner.CornerRadius = UDim.new(0, 9)
-			gameDetectionPrompt.Thumbnail.UICorner.CornerRadius = UDim.new(0, 9)
-			gameDetectionPrompt.ScriptTitle.Position = UDim2.new(0, 30, 0.5, 0)
-			gameDetectionPrompt.Layer.Visible = false
-			gameDetectionPrompt.Warning.Visible = false
-
-			wipeTransparency(gameDetectionPrompt, 1, true)
-
-			gameDetectionPrompt.Visible = true
-
-			tweenService:Create(gameDetectionPrompt, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-			tweenService:Create(gameDetectionPrompt.Thumbnail, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {ImageTransparency = 0.4}):Play()
-			tweenService:Create(gameDetectionPrompt.ScriptTitle, TweenInfo.new(0.6, Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-
-			tweenService:Create(gameDetectionPrompt, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 587, 0, 44)}):Play()
-			tweenService:Create(gameDetectionPrompt, TweenInfo.new(1, Enum.EasingStyle.Exponential), {Position = UDim2.new(0.5, 0, 0, 150)}):Play()
-
-			task.wait(1)
-
-			wipeTransparency(gameDetectionPrompt.Layer, 1, true)
-
-			gameDetectionPrompt.Layer.Visible = true
-
-			tweenService:Create(gameDetectionPrompt, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 473, 0, 154)}):Play()
-			tweenService:Create(gameDetectionPrompt.ScriptTitle, TweenInfo.new(1, Enum.EasingStyle.Exponential), {Position = UDim2.new(0, 23, 0.352, 0)}):Play()
-			tweenService:Create(gameDetectionPrompt, TweenInfo.new(1, Enum.EasingStyle.Exponential), {Position = UDim2.new(0.5, 0, 0, 200)}):Play()
-			tweenService:Create(gameDetectionPrompt.UICorner, TweenInfo.new(1, Enum.EasingStyle.Exponential), {CornerRadius = UDim.new(0, 13)}):Play()
-			tweenService:Create(gameDetectionPrompt.Thumbnail.UICorner, TweenInfo.new(1, Enum.EasingStyle.Exponential), {CornerRadius = UDim.new(0, 13)}):Play()
-			tweenService:Create(gameDetectionPrompt.Thumbnail, TweenInfo.new(1, Enum.EasingStyle.Exponential), {ImageTransparency = 0.5}):Play()
-
-			task.wait(0.3)
-			tweenService:Create(gameDetectionPrompt.Layer.ScriptSubtitle, TweenInfo.new(0.6, Enum.EasingStyle.Quint),  {TextTransparency = 0.3}):Play()
-			tweenService:Create(gameDetectionPrompt.Layer.Run, TweenInfo.new(0.6, Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-			tweenService:Create(gameDetectionPrompt.Layer.Run.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Quint),  {Transparency = 0.85}):Play()
-			tweenService:Create(gameDetectionPrompt.Layer.Run, TweenInfo.new(0.6, Enum.EasingStyle.Quint),  {BackgroundTransparency = 0.6}):Play()
-
-			task.wait(0.2)
-
-			tweenService:Create(gameDetectionPrompt.Layer.Close, TweenInfo.new(0.7, Enum.EasingStyle.Exponential), {ImageTransparency = 0.6}):Play()
-
-			task.wait(0.3)
-
-			local function closeGameDetection()
-				tweenService:Create(gameDetectionPrompt.Layer.ScriptSubtitle, TweenInfo.new(0.3, Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-				tweenService:Create(gameDetectionPrompt.Layer.Run, TweenInfo.new(0.3, Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-				tweenService:Create(gameDetectionPrompt.Layer.Run, TweenInfo.new(0.3, Enum.EasingStyle.Quint),  {BackgroundTransparency = 1}):Play()
-				tweenService:Create(gameDetectionPrompt.Layer.Close, TweenInfo.new(0.3, Enum.EasingStyle.Exponential), {ImageTransparency = 1}):Play()
-				tweenService:Create(gameDetectionPrompt.Thumbnail, TweenInfo.new(0.3, Enum.EasingStyle.Quint),  {ImageTransparency = 1}):Play()
-				tweenService:Create(gameDetectionPrompt.ScriptTitle, TweenInfo.new(0.3, Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-				tweenService:Create(gameDetectionPrompt.Layer.Run.UIStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint),  {Transparency = 1}):Play()
-				task.wait(0.05)
-				tweenService:Create(gameDetectionPrompt, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 400, 0, 0)}):Play()
-				tweenService:Create(gameDetectionPrompt.UICorner, TweenInfo.new(0.2, Enum.EasingStyle.Exponential), {CornerRadius = UDim.new(0, 5)}):Play()
-				tweenService:Create(gameDetectionPrompt.Thumbnail.UICorner, TweenInfo.new(0.2, Enum.EasingStyle.Exponential), {CornerRadius = UDim.new(0, 5)}):Play()
-				task.wait(0.41)
-				gameDetectionPrompt.Visible = false
-			end
-
-			gameDetectionPrompt.Layer.Run.MouseButton1Click:Connect(function()
-				closeGameDetection()
-				queueNotification("Running "..gameFound.name, "Now running Sirius' "..gameFound.name.." script, this may take a moment.", 4400701828)
-				runScript(rawFile)
-
-			end)
-
-			gameDetectionPrompt.Layer.Close.MouseButton1Click:Connect(function()
-				closeGameDetection()
-			end)
-
-			break
-		end
-	end
-end
-
-local function updateSliderPadding()
-	for _, v in pairs(siriusValues.sliders) do
-		v.padding = {
-			v.object.Interact.AbsolutePosition.X,
-			v.object.Interact.AbsolutePosition.X + v.object.Interact.AbsoluteSize.X
-		}
-	end
-end
-
-local function updateSlider(data, setValue, forceValue)
-	local inverse_interpolation
-
-	if setValue then
-		setValue = math.clamp(setValue, data.values[1], data.values[2])
-		inverse_interpolation = (setValue - data.values[1]) / (data.values[2] - data.values[1])
-		local posX = data.padding[1] + (data.padding[2] - data.padding[1]) * inverse_interpolation
-	else
-		local posX = math.clamp(mouse.X, data.padding[1], data.padding[2])
-		inverse_interpolation = (posX - data.padding[1]) / (data.padding[2] - data.padding[1])
-	end
-
-	tweenService:Create(data.object.Progress, TweenInfo.new(.5, Enum.EasingStyle.Quint), {Size = UDim2.new(inverse_interpolation, 0, 1, 0)}):Play()
-
-	local value = math.floor(data.values[1] + (data.values[2] - data.values[1]) * inverse_interpolation + .5)
-	data.object.Information.Text = value.." "..data.name
-	data.value = value
-
-	if data.callback and not setValue or forceValue then
-		data.callback(value)
-	end
-end
-
-local function resetSliders()
-	for _, v in pairs(siriusValues.sliders) do
-		updateSlider(v, v.default, true)
-	end
-end
-
-local function sortActions()	
-	characterPanel.Interactions.Grid.Template.Visible = false
-	characterPanel.Interactions.Sliders.Template.Visible = false
-
-	for _, action in ipairs(siriusValues.actions) do
-		local newAction = characterPanel.Interactions.Grid.Template:Clone()
-		newAction.Name = action.name
-		newAction.Parent = characterPanel.Interactions.Grid
-		newAction.BackgroundColor3 = action.color
-		newAction.UIStroke.Color = action.color
-		newAction.Icon.Image = "rbxassetid://"..action.images[2]
-		newAction.Visible = true
-
-		newAction.BackgroundTransparency = 0.8
-		newAction.Transparency = 0.7
-
-
-		newAction.MouseEnter:Connect(function()
-			characterPanel.Interactions.ActionsTitle.Text = string.upper(action.name)
-			if action.enabled or debounce then return end
-			tweenService:Create(newAction, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.4}):Play()
-			tweenService:Create(newAction.UIStroke, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {Transparency = 0.6}):Play()
-		end)
-
-		newAction.MouseLeave:Connect(function()
-			if action.enabled or debounce then return end
-			tweenService:Create(newAction, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.55}):Play()
-			tweenService:Create(newAction.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 0.4}):Play()
-		end)
-
-		characterPanel.Interactions.Grid.MouseLeave:Connect(function()
-			characterPanel.Interactions.ActionsTitle.Text = "PLAYER ACTIONS"
-		end)
-
-		newAction.Interact.MouseButton1Click:Connect(function()
-			local success, response = pcall(function()
-				action.enabled = not action.enabled
-				action.callback(action.enabled)
-
-				if action.enabled then
-					newAction.Icon.Image = "rbxassetid://"..action.images[1]
-					tweenService:Create(newAction, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.1}):Play()
-					tweenService:Create(newAction.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-					tweenService:Create(newAction.Icon, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {ImageTransparency = 0.1}):Play()
-
-					if action.disableAfter then
-						task.delay(action.disableAfter, function()
-							action.enabled = false
-							newAction.Icon.Image = "rbxassetid://"..action.images[2]
-							tweenService:Create(newAction, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.55}):Play()
-							tweenService:Create(newAction.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 0.4}):Play()
-							tweenService:Create(newAction.Icon, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 0.5}):Play()
-						end)
-					end
-
-					if action.rotateWhileEnabled then
-						repeat
-							newAction.Icon.Rotation = 0
-							tweenService:Create(newAction.Icon, TweenInfo.new(0.75, Enum.EasingStyle.Quint), {Rotation = 360}):Play()
-							task.wait(1)
-						until not action.enabled
-						newAction.Icon.Rotation = 0
-					end
-				else
-					newAction.Icon.Image = "rbxassetid://"..action.images[2]
-					tweenService:Create(newAction, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.55}):Play()
-					tweenService:Create(newAction.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 0.4}):Play()
-					tweenService:Create(newAction.Icon, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 0.5}):Play()
-				end
-			end)
-
-			if not success then
-				queueNotification("Action Error", "This action ('"..(action.name).."') had an error while running, please report this to the Sirius team at sirius.menu/discord", 4370336704)
-				action.enabled = false
-				newAction.Icon.Image = "rbxassetid://"..action.images[2]
-				tweenService:Create(newAction, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.55}):Play()
-				tweenService:Create(newAction.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 0.4}):Play()
-				tweenService:Create(newAction.Icon, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 0.5}):Play()
+	if not getgenv().ractvkretarddumb then
+		spawn(function() 
+			while wait(1) do
+				SaveCustomUISettings()
 			end
 		end)
+		getgenv().ractvkretarddumb = true
 	end
-
-	if localPlayer.Character then
-		if not localPlayer.Character:FindFirstChildOfClass('Humanoid').UseJumpPower then
-			siriusValues.sliders[2].name = "jump height"
-			siriusValues.sliders[2].default = 7.2
-			siriusValues.sliders[2].values = {0, 120}
-		end
-	end
-
-
-	for _, slider in ipairs(siriusValues.sliders) do
-		local newSlider = characterPanel.Interactions.Sliders.Template:Clone()
-		newSlider.Name = slider.name.." Slider"
-		newSlider.Parent = characterPanel.Interactions.Sliders
-		newSlider.BackgroundColor3 = slider.color
-		newSlider.Progress.BackgroundColor3 = slider.color
-		newSlider.UIStroke.Color = slider.color
-		newSlider.Information.Text = slider.name
-		newSlider.Visible = true
-
-		slider.object = newSlider
-
-		slider.padding = {
-			newSlider.Interact.AbsolutePosition.X,
-			newSlider.Interact.AbsolutePosition.X + newSlider.Interact.AbsoluteSize.X
-		}
-
-		newSlider.MouseEnter:Connect(function()
-			if debounce or slider.active then return end
-			tweenService:Create(newSlider, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.85}):Play()
-			tweenService:Create(newSlider.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 0.6}):Play()
-			tweenService:Create(newSlider.Information, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {TextTransparency = 0.2}):Play()
-		end)
-
-		newSlider.MouseLeave:Connect(function()
-			if debounce or slider.active then return end
-			tweenService:Create(newSlider, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.8}):Play()
-			tweenService:Create(newSlider.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 0.5}):Play()
-			tweenService:Create(newSlider.Information, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {TextTransparency = 0.3}):Play()
-		end)
-
-		newSlider.Interact.MouseButton1Down:Connect(function()
-			if debounce or not checkSirius() then return end
-
-			slider.active = true
-			updateSlider(slider)
-
-			tweenService:Create(slider.object, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.9}):Play()
-			tweenService:Create(slider.object.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 1}):Play()
-			tweenService:Create(slider.object.Information, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {TextTransparency = 0.05}):Play()
-		end)
-
-		updateSlider(slider, slider.default)
-	end
-end
-
-local function getAdaptiveHighPingThreshold()
-	local adaptiveBaselinePings = siriusValues.pingProfile.adaptiveBaselinePings
-
-	if #adaptiveBaselinePings == 0 then
-		return siriusValues.pingProfile.adaptiveHighPingThreshold
-	end
-
-	table.sort(adaptiveBaselinePings)
-	local median
-	if #adaptiveBaselinePings % 2 == 0 then
-		median = (adaptiveBaselinePings[#adaptiveBaselinePings/2] + adaptiveBaselinePings[#adaptiveBaselinePings/2 + 1]) / 2
-	else
-		median = adaptiveBaselinePings[math.ceil(#adaptiveBaselinePings/2)]
-	end
-
-	return median * siriusValues.pingProfile.spikeThreshold
-end
-
-local function checkHighPing()
-	local recentPings = siriusValues.pingProfile.recentPings
-	local adaptiveBaselinePings = siriusValues.pingProfile.adaptiveBaselinePings
-
-	local currentPing = getPing()
-	table.insert(recentPings, currentPing)
-
-	if #recentPings > siriusValues.pingProfile.maxSamples then
-		table.remove(recentPings, 1)
-	end
-
-	if #adaptiveBaselinePings < siriusValues.pingProfile.adaptiveBaselineSamples then
-		if currentPing >= 350 then currentPing = 300 end
-
-		table.insert(adaptiveBaselinePings, currentPing)
-
-		return false
-	end
-
-	local averagePing = 0
-	for _, ping in ipairs(recentPings) do
-		averagePing = averagePing + ping
-	end
-	averagePing = averagePing / #recentPings
-
-	if averagePing > getAdaptiveHighPingThreshold() then
-		return true
-	end
-
-	return false
-end
-
-local function checkTools()
-	task.wait(0.03)
-	if localPlayer.Backpack and localPlayer.Character then
-		if localPlayer.Backpack:FindFirstChildOfClass('Tool') or localPlayer.Character:FindFirstChildOfClass('Tool') then
-			return true
-		end
-	else
-		return false
-	end
-end
-
-local function closePanel(panelName, openingOther)
-	debounce = true
-
-	local button = smartBar.Buttons:FindFirstChild(panelName)
-	local panel = UI:FindFirstChild(panelName)
-
-	if not isPanel(panelName) then return end
-	if not (panel and button) then return end
-
-	local panelSize = UDim2.new(0, 581, 0, 246)
-
-	if not openingOther then
-		if panel.Name == "Character" then -- Character Panel Animation
-
-			tweenService:Create(characterPanel.Interactions.PropertiesTitle, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-
-			for _, slider in ipairs(characterPanel.Interactions.Sliders:GetChildren()) do
-				if slider.ClassName == "Frame" then 
-					tweenService:Create(slider, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-					tweenService:Create(slider.Progress, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-					tweenService:Create(slider.UIStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-					tweenService:Create(slider.Shadow, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-					tweenService:Create(slider.Information, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play() -- tween the text after
+	getgenv().UIColor=setmetatable({},{
+		__newindex=function(Self, Key, Value) 
+			if UpdateCallBack[Key] then 
+				for k, v in pairs(UpdateCallBack[Key]) do 
+					v()
 				end
 			end
-
-			tweenService:Create(characterPanel.Interactions.Reset, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-			tweenService:Create(characterPanel.Interactions.ActionsTitle, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-
-			for _, gridButton in ipairs(characterPanel.Interactions.Grid:GetChildren()) do
-				if gridButton.ClassName == "Frame" then 
-					tweenService:Create(gridButton, TweenInfo.new(0.21, Enum.EasingStyle.Exponential), {BackgroundTransparency = 1}):Play()
-					tweenService:Create(gridButton.UIStroke, TweenInfo.new(0.1, Enum.EasingStyle.Exponential), {Transparency = 1}):Play()
-					tweenService:Create(gridButton.Icon, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-					tweenService:Create(gridButton.Shadow, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-				end
-			end
-
-			tweenService:Create(characterPanel.Interactions.Serverhop, TweenInfo.new(.15,Enum.EasingStyle.Quint),  {BackgroundTransparency = 1}):Play()
-			tweenService:Create(characterPanel.Interactions.Serverhop.Title, TweenInfo.new(.15,Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-			tweenService:Create(characterPanel.Interactions.Serverhop.UIStroke, TweenInfo.new(.15,Enum.EasingStyle.Quint),  {Transparency = 1}):Play()
-
-			tweenService:Create(characterPanel.Interactions.Rejoin, TweenInfo.new(.15,Enum.EasingStyle.Quint),  {BackgroundTransparency = 1}):Play()
-			tweenService:Create(characterPanel.Interactions.Rejoin.Title, TweenInfo.new(.15,Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-			tweenService:Create(characterPanel.Interactions.Rejoin.UIStroke, TweenInfo.new(.15,Enum.EasingStyle.Quint),  {Transparency = 1}):Play()
-
-		elseif panel.Name == "Scripts" then -- Scripts Panel Animation
-
-			for _, scriptButton in ipairs(scriptsPanel.Interactions.Selection:GetChildren()) do
-				if scriptButton.ClassName == "Frame" then
-					tweenService:Create(scriptButton, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-					if scriptButton:FindFirstChild('Icon') then tweenService:Create(scriptButton.Icon, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play() end
-					tweenService:Create(scriptButton.Title, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-					if scriptButton:FindFirstChild('Subtitle') then	tweenService:Create(scriptButton.Subtitle, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play() end
-					tweenService:Create(scriptButton.UIStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-				end
-			end
-
-		elseif panel.Name == "Playerlist" then -- Playerlist Panel Animation
-
-			for _, playerIns in ipairs(playerlistPanel.Interactions.List:GetDescendants()) do
-				if playerIns.ClassName == "Frame" then
-					tweenService:Create(playerIns, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-				elseif playerIns.ClassName == "TextLabel" or playerIns.ClassName == "TextButton" then
-					if playerIns.Name == "DisplayName" then
-						tweenService:Create(playerIns, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-					else
-						tweenService:Create(playerIns, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-					end
-				elseif playerIns.ClassName == "ImageLabel" or playerIns.ClassName == "ImageButton" then
-					tweenService:Create(playerIns, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-					if playerIns.Name == "Avatar" then tweenService:Create(playerIns, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play() end
-				elseif playerIns.ClassName == "UIStroke" then
-					tweenService:Create(playerIns, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-				end
-			end
-
-			tweenService:Create(playerlistPanel.Interactions.SearchFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-			tweenService:Create(playerlistPanel.Interactions.SearchFrame.Icon, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-			tweenService:Create(playerlistPanel.Interactions.SearchFrame.SearchBox, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-			tweenService:Create(playerlistPanel.Interactions.SearchFrame.UIStroke, TweenInfo.new(0.15, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-			tweenService:Create(playerlistPanel.Interactions.List, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ScrollBarImageTransparency = 1}):Play()
-
-		end
+			rawset(IndexUIColor,Key,Value)
+			SettingsRac[Key].Color = Value
+		end,
+		__index = IndexUIColor
+	})
+	
+	local currcolor = {}
+	local Library = {};
+	local Library_Function = {}
+	local TweenService = game:GetService('TweenService')
+	local uis = game:GetService("UserInputService")
+	
+	--Button Effect
+	function Library_Function.ButtonEffect()
+		local mouse = game:GetService("Players").LocalPlayer:GetMouse();
+		local buttoneffect = Drawing.new("Circle")
+		buttoneffect.Visible = true
+		buttoneffect.Radius = 10
+		buttoneffect.Filled = true
+		buttoneffect.Color = getgenv().UIColor["Click Effect Color"]
 		
-		tweenService:Create(panel.Icon, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-		tweenService:Create(panel.Title, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-		tweenService:Create(panel.UIStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-		tweenService:Create(panel.Shadow, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-		task.wait(0.03)
-
-		tweenService:Create(panel, TweenInfo.new(0.75, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
-		tweenService:Create(panel, TweenInfo.new(1.1, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {Size = button.Size}):Play()
-		tweenService:Create(panel, TweenInfo.new(0.65, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {Position = siriusValues.buttonPositions[panelName]}):Play()
-		tweenService:Create(toggle, TweenInfo.new(0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {Position = UDim2.new(0.5, 0, 1, -85)}):Play()
+		buttoneffect.Position = Vector2.new(mouse.X, mouse.Y + 35)
+	
+	
+		local BuoiFolder = Instance.new('Folder')
+		BuoiFolder.Parent = Library_Function.gui
+		BuoiFolder.Name = 'Game nhu buoi'
+	
+		local a = Instance.new('NumberValue')
+		a.Value = 10
+		a.Parent = BuoiFolder
+		a.Name = 'Rua nhu buoi'
+	
+		local b = Instance.new('NumberValue')
+		b.Value = 1
+		b.Parent = BuoiFolder
+		b.Name = 'Rua nhu buoi 2'
+	
+		TweenService:Create(a,TweenInfo.new(.25),{Value = 25}):Play()
+		TweenService:Create(b,TweenInfo.new(.25),{Value = 0}):Play()
+	
+	
+		a:GetPropertyChangedSignal('Value'):Connect(function()
+			buttoneffect.Radius = a.Value
+		end)
+	
+	
+		b:GetPropertyChangedSignal('Value'):Connect(function()
+			buttoneffect.Transparency = b.Value
+		end)
+	
+		wait(.5)
+		BuoiFolder:Destroy()
 	end
-
-	-- Animate interactive elements
-	if openingOther then
-		tweenService:Create(panel, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {Position = UDim2.new(0.5, 350, 1, -90)}):Play()
-		wipeTransparency(panel, 1, true, true, 0.3)
-	end
-
-	task.wait(0.5)
-	panel.Size = panelSize
-	panel.Visible = false
-
-	debounce = false
-end
-
-local function openPanel(panelName)
-	if debounce then return end
-	debounce = true
-
-	local button = smartBar.Buttons:FindFirstChild(panelName)
-	local panel = UI:FindFirstChild(panelName)
-
-	if not isPanel(panelName) then return end
-	if not (panel and button) then return end
-
-	for _, otherPanel in ipairs(UI:GetChildren()) do
-		if smartBar.Buttons:FindFirstChild(otherPanel.Name) then
-			if isPanel(otherPanel.Name) and otherPanel.Visible then
-				task.spawn(closePanel, otherPanel.Name, true)
-				task.wait()
-			end
-		end
-	end
-
-	local panelSize = UDim2.new(0, 581, 0, 246)
-
-	panel.Size = button.Size
-	panel.Position = siriusValues.buttonPositions[panelName]
-
-	wipeTransparency(panel, 1, true)
-
-	panel.Visible = true
-
-	tweenService:Create(toggle, TweenInfo.new(0.65, Enum.EasingStyle.Quint), {Position = UDim2.new(0.5, 0, 1, -(panelSize.Y.Offset + 95))}):Play()
-
-	tweenService:Create(panel, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-	tweenService:Create(panel, TweenInfo.new(0.8, Enum.EasingStyle.Exponential), {Size = panelSize}):Play()
-	tweenService:Create(panel, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Position = UDim2.new(0.5, 0, 1, -90)}):Play()
-	task.wait(0.1)
-	tweenService:Create(panel.Shadow, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {ImageTransparency = 0.7}):Play()
-	tweenService:Create(panel.Icon, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play()
-	task.wait(0.05)
-	tweenService:Create(panel.Title, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-	tweenService:Create(panel.UIStroke, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {Transparency = 0.95}):Play()
-	task.wait(0.05)
-
-	-- Animate interactive elements
-	if panel.Name == "Character" then -- Character Panel Animation
-
-		tweenService:Create(characterPanel.Interactions.PropertiesTitle, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {TextTransparency = 0.65}):Play()
-
-		local sliderInfo = {}
-		for _, slider in ipairs(characterPanel.Interactions.Sliders:GetChildren()) do
-			if slider.ClassName == "Frame" then 
-				table.insert(sliderInfo, {slider.Name, slider.Progress.Size, slider.Information.Text})
-				slider.Progress.Size = UDim2.new(0, 0, 1, 0)
-				slider.Progress.BackgroundTransparency = 0
-
-				tweenService:Create(slider, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.8}):Play()
-				tweenService:Create(slider.UIStroke, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {Transparency = 0.5}):Play()
-				tweenService:Create(slider.Shadow, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {ImageTransparency = 0.6}):Play()
-				tweenService:Create(slider.Information, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {TextTransparency = 0.3}):Play()
-			end
-		end
-
-		for _, sliderV in pairs(sliderInfo) do
-			if characterPanel.Interactions.Sliders:FindFirstChild(sliderV[1]) then
-				local slider = characterPanel.Interactions.Sliders:FindFirstChild(sliderV[1])
-				local tweenValue = Instance.new("IntValue", UI)
-				local tweenTo
-				local name
-
-				for _, sliderFound in ipairs(siriusValues.sliders) do
-					if sliderFound.name.." Slider" == slider.Name then
-						tweenTo = sliderFound.value
-						name = sliderFound.name
-						break
-					end
-				end
-
-				tweenService:Create(slider.Progress, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {Size = sliderV[2]}):Play()
-
-				local function animateNumber(n)
-					tweenService:Create(tweenValue, TweenInfo.new(0.35, Enum.EasingStyle.Exponential), {Value = n}):Play()
-					task.delay(0.4, tweenValue.Destroy, tweenValue)
-				end
-
-				tweenValue:GetPropertyChangedSignal("Value"):Connect(function()
-					slider.Information.Text = tostring(tweenValue.Value).." "..name
-				end)
-
-				animateNumber(tweenTo)
-			end
-		end
-
-		tweenService:Create(characterPanel.Interactions.Reset, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {ImageTransparency = 0.7}):Play()
-		tweenService:Create(characterPanel.Interactions.ActionsTitle, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {TextTransparency = 0.65}):Play()
-
-		for _, gridButton in ipairs(characterPanel.Interactions.Grid:GetChildren()) do
-			if gridButton.ClassName == "Frame" then 
-				for _, action in ipairs(siriusValues.actions) do
-					if action.name == gridButton.Name then
-						if action.enabled then
-							tweenService:Create(gridButton, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.1}):Play()
-							tweenService:Create(gridButton.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-							tweenService:Create(gridButton.Icon, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {ImageTransparency = 0.1}):Play()
-						else
-							tweenService:Create(gridButton, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.55}):Play()
-							tweenService:Create(gridButton.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 0.4}):Play()
-							tweenService:Create(gridButton.Icon, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 0.5}):Play()
-						end
-						break
-					end
-				end
-
-				tweenService:Create(gridButton.Shadow, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {ImageTransparency = 0.6}):Play()
-			end
-		end
-
-		tweenService:Create(characterPanel.Interactions.Serverhop, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-		tweenService:Create(characterPanel.Interactions.Serverhop.Title, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0.5}):Play()
-		tweenService:Create(characterPanel.Interactions.Serverhop.UIStroke, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Transparency = 0}):Play()
-
-		tweenService:Create(characterPanel.Interactions.Rejoin, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-		tweenService:Create(characterPanel.Interactions.Rejoin.Title, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0.5}):Play()
-		tweenService:Create(characterPanel.Interactions.Rejoin.UIStroke, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Transparency = 0}):Play()
-
-	elseif panel.Name == "Scripts" then -- Scripts Panel Animation
-
-		for _, scriptButton in ipairs(scriptsPanel.Interactions.Selection:GetChildren()) do
-			if scriptButton.ClassName == "Frame" then
-				tweenService:Create(scriptButton, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-				if scriptButton:FindFirstChild('Icon') then tweenService:Create(scriptButton.Icon, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play() end
-				tweenService:Create(scriptButton.Title, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-				if scriptButton:FindFirstChild('Subtitle') then	tweenService:Create(scriptButton.Subtitle, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {TextTransparency = 0.3}):Play() end
-				tweenService:Create(scriptButton.UIStroke, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {Transparency = 0.2}):Play()
-			end
-		end
-
-	elseif panel.Name == "Playerlist" then -- Playerlist Panel Animation
-
-		for _, playerIns in ipairs(playerlistPanel.Interactions.List:GetDescendants()) do
-			if playerIns.Name ~= "Interact" and playerIns.Name ~= "Role" then 
-				if playerIns.ClassName == "Frame" then
-					tweenService:Create(playerIns, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-				elseif playerIns.ClassName == "TextLabel" or playerIns.ClassName == "TextButton" then
-					tweenService:Create(playerIns, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-				elseif playerIns.ClassName == "ImageLabel" or playerIns.ClassName == "ImageButton" then
-					tweenService:Create(playerIns, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play()
-					if playerIns.Name == "Avatar" then tweenService:Create(playerIns, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play() end
-				elseif playerIns.ClassName == "UIStroke" then
-					tweenService:Create(playerIns, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
-				end
-			end
-		end
-
-		tweenService:Create(playerlistPanel.Interactions.SearchFrame, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-		tweenService:Create(playerlistPanel.Interactions.SearchFrame.Icon, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play()
-		task.wait(0.01)
-		tweenService:Create(playerlistPanel.Interactions.SearchFrame.SearchBox, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-		tweenService:Create(playerlistPanel.Interactions.SearchFrame.UIStroke, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {Transparency = 0.2}):Play()
-		task.wait(0.05)
-		tweenService:Create(playerlistPanel.Interactions.List, TweenInfo.new(0.35, Enum.EasingStyle.Quint), {ScrollBarImageTransparency = 0.7}):Play()
-
-	end
-
-	task.wait(0.45)
-	debounce = false
-end
-
-local function rejoin()
-	queueNotification("Rejoining Session", "We're queueing a rejoin to this session, give us a moment.", 4400696294)
-
-	if #players:GetPlayers() <= 1 then
-		task.wait()
-		teleportService:Teleport(placeId, localPlayer)
-	else
-		teleportService:TeleportToPlaceInstance(placeId, jobId, localPlayer)
-	end
-end
-
-local function serverhop()
-	local highestPlayers = 0
-	local servers = {}
-
-	for _, v in ipairs(httpService:JSONDecode(game:HttpGetAsync("https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100")).data) do
-		if type(v) == "table" and v.maxPlayers > v.playing and v.id ~= jobId then
-			if v.playing > highestPlayers then
-				highestPlayers = v.playing
-				servers[1] = v.id
-			end
-		end
-	end
-
-	if #servers > 0 then
-		queueNotification("Teleporting", "We're now moving you to the new session, this may take a few seconds.", 4335479121)
-		task.wait(0.3)
-		teleportService:TeleportToPlaceInstance(placeId, servers[1])
-	else
-		return queueNotification("No Servers Found", "We couldn't find another server, this may be the only server.", 4370317928)
-	end
-
-end
-
-local function ensureFrameProperties()
-	UI.Enabled = true
-	characterPanel.Visible = false
-	customScriptPrompt.Visible = false
-	disconnectedPrompt.Visible = false
-	playerlistPanel.Interactions.List.Template.Visible = false
-	gameDetectionPrompt.Visible = false
-	homeContainer.Visible = false
-	moderatorDetectionPrompt.Visible = false
-	musicPanel.Visible = false
-	notificationContainer.Visible = true
-	playerlistPanel.Visible = false
-	scriptSearch.Visible = false
-	scriptsPanel.Visible = false
-	settingsPanel.Visible = false
-	smartBar.Visible = false
-	musicPanel.Playing.Text = "Not Playing"
-	if not getcustomasset then smartBar.Buttons.Music.Visible = false end
-	toastsContainer.Visible = true
-	makeDraggable(settingsPanel)
-	makeDraggable(musicPanel)
-end
-
-local function checkFriends()
-	if friendsCooldown == 0 then
-
-		friendsCooldown = 25
-
-		local playersFriends = {}
-		local success, page = pcall(players.GetFriendsAsync, players, localPlayer.UserId)
-
-		if success then
-			repeat
-				local info = page:GetCurrentPage()
-				for i, friendInfo in pairs(info) do
-					table.insert(playersFriends, friendInfo)
-				end
-				if not page.IsFinished then 
-					page:AdvanceToNextPageAsync()
-				end
-			until page.IsFinished
-		end
-
-		local friendsInTotal = 0
-		local onlineFriends = 0 
-		local friendsInGame = 0 
-
-		for i,v in pairs(playersFriends) do
-			friendsInTotal  = friendsInTotal + 1
-
-			if v.IsOnline then
-				onlineFriends = onlineFriends + 1
-			end
-
-			if players:FindFirstChild(v.Username) then
-				friendsInGame = friendsInGame + 1
-			end
-		end
-
-		if not checkSirius() then return end
-
-		homeContainer.Interactions.Friends.All.Value.Text = tostring(friendsInTotal).." friends"
-		homeContainer.Interactions.Friends.Offline.Value.Text = tostring(friendsInTotal - onlineFriends).." friends"
-		homeContainer.Interactions.Friends.Online.Value.Text = tostring(onlineFriends).." friends"
-		homeContainer.Interactions.Friends.InGame.Value.Text = tostring(friendsInGame).." friends"
-
-	else
-		friendsCooldown -= 1
-	end
-end
-
-function promptModerator(player, role)
-	local serversAvailable = false
-	local promptClosed = false
-
-	if moderatorDetectionPrompt.Visible then return end
-
-	moderatorDetectionPrompt.Size = UDim2.new(0, 283, 0, 175)
-	moderatorDetectionPrompt.UIGradient.Offset = Vector2.new(0, 1)
-	wipeTransparency(moderatorDetectionPrompt, 1, true)
-
-	moderatorDetectionPrompt.DisplayName.Text = player.DisplayName
-	moderatorDetectionPrompt.Rank.Text = role
-	moderatorDetectionPrompt.Avatar.Image = "https://www.roblox.com/headshot-thumbnail/image?userId="..player.UserId.."&width=420&height=420&format=png"
-
-	moderatorDetectionPrompt.Visible = true
-
-	for _, v in ipairs(game:GetService("HttpService"):JSONDecode(game:HttpGetAsync("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100")).data) do
-		if type(v) == "table" and v.maxPlayers > v.playing and v.id ~= game.JobId then
-			serversAvailable = true
-		end
-	end
-
-	if not serversAvailable then
-		moderatorDetectionPrompt.Serverhop.Visible = false
-	else
-		moderatorDetectionPrompt.ServersAvailableFade.Visible = true
-	end
-
-	tweenService:Create(moderatorDetectionPrompt, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-	tweenService:Create(moderatorDetectionPrompt, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 300, 0, 186)}):Play()
-	tweenService:Create(moderatorDetectionPrompt.UIGradient, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {Offset = Vector2.new(0, 0.65)}):Play()
-	tweenService:Create(moderatorDetectionPrompt.Title, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-	tweenService:Create(moderatorDetectionPrompt.Subtitle, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-	tweenService:Create(moderatorDetectionPrompt.Avatar, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.7}):Play()
-	tweenService:Create(moderatorDetectionPrompt.Avatar, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play()
-	tweenService:Create(moderatorDetectionPrompt.DisplayName, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-	tweenService:Create(moderatorDetectionPrompt.Rank, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-	tweenService:Create(moderatorDetectionPrompt.Serverhop, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.7}):Play()
-	tweenService:Create(moderatorDetectionPrompt.Leave, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.7}):Play()
-	task.wait(0.2)
-	tweenService:Create(moderatorDetectionPrompt.Serverhop, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-	tweenService:Create(moderatorDetectionPrompt.Leave, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-	task.wait(0.3)
-	tweenService:Create(moderatorDetectionPrompt.Close, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 0.6}):Play()
-
-	local function closeModPrompt()
-		tweenService:Create(moderatorDetectionPrompt, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 283, 0, 175)}):Play()
-		tweenService:Create(moderatorDetectionPrompt.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Offset = Vector2.new(0, 1)}):Play()
-		tweenService:Create(moderatorDetectionPrompt.Title, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt.Subtitle, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt.Avatar, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt.Avatar, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt.DisplayName, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt.Rank, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt.Serverhop, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt.Leave, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt.Serverhop, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt.Leave, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-		tweenService:Create(moderatorDetectionPrompt.Close, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-		task.wait(0.5)
-		moderatorDetectionPrompt.Visible = false
-	end
-
-	moderatorDetectionPrompt.Leave.MouseButton1Click:Connect(function()
-		closeModPrompt()
-		game:Shutdown()
-	end)
-
-	moderatorDetectionPrompt.Serverhop.MouseEnter:Connect(function()
-		tweenService:Create(moderatorDetectionPrompt.ServersAvailableFade, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0.5}):Play()
-	end)
-
-	moderatorDetectionPrompt.Serverhop.MouseLeave:Connect(function()
-		tweenService:Create(moderatorDetectionPrompt.ServersAvailableFade, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-	end)
-
-	moderatorDetectionPrompt.Serverhop.MouseButton1Click:Connect(function()
-		if promptClosed then return end
-		serverhop()
-		closeModPrompt()
-	end)
-
-	moderatorDetectionPrompt.Close.MouseButton1Click:Connect(function()
-		closeModPrompt()
-		promptClosed = true
-	end)
-end
-
-local function UpdateHome()
-	if not checkSirius() then return end
-
-	local function format(Int)
-		return string.format("%02i", Int)
-	end
-
-	local function convertToHMS(Seconds)
-		local Minutes = (Seconds - Seconds%60)/60
-		Seconds = Seconds - Minutes*60
-		local Hours = (Minutes - Minutes%60)/60
-		Minutes = Minutes - Hours*60
-		return format(Hours)..":"..format(Minutes)..":"..format(Seconds)
-	end
-
-	-- Home Title
-	homeContainer.Title.Text = "Welcome home, "..localPlayer.DisplayName
-
-	-- Players
-	homeContainer.Interactions.Server.Players.Value.Text = #players:GetPlayers().." playing"
-	homeContainer.Interactions.Server.MaxPlayers.Value.Text = players.MaxPlayers.." players can join this server"
-
-	-- Ping
-	homeContainer.Interactions.Server.Latency.Value.Text = math.floor(getPing()).."ms"
-
-	-- Time
-	homeContainer.Interactions.Server.Time.Value.Text = convertToHMS(time())
-
-	-- Region
-	homeContainer.Interactions.Server.Region.Value.Text = "Unable to retrieve region"
-
-	-- Player Information
-	homeContainer.Interactions.User.Avatar.Image = "https://www.roblox.com/headshot-thumbnail/image?userId="..localPlayer.UserId.."&width=420&height=420&format=png"
-	homeContainer.Interactions.User.Title.Text = localPlayer.DisplayName
-	homeContainer.Interactions.User.Subtitle.Text = localPlayer.Name
-
-	-- Update Executor
-	homeContainer.Interactions.Client.Title.Text = identifyexecutor()
-	if not table.find(siriusValues.executors, string.lower(identifyexecutor())) then
-		homeContainer.Interactions.Client.Subtitle.Text = "This executor is not verified as supported."
-	end
-
-	-- Update Friends Statuses
-	checkFriends()
-end
-
-local function openHome()
-	if debounce then return end
-	debounce = true
-	homeContainer.Visible = true
-
-	local homeBlur = Instance.new("BlurEffect", lighting)
-	homeBlur.Size = 0
-	homeBlur.Name = "HomeBlur"
-
-	homeContainer.BackgroundTransparency = 1
-	homeContainer.Title.TextTransparency = 1
-	homeContainer.Subtitle.TextTransparency = 1
-
-	for _, homeItem in ipairs(homeContainer.Interactions:GetChildren()) do
-
-		wipeTransparency(homeItem, 1, true)
-
-		homeItem.Position = UDim2.new(0, homeItem.Position.X.Offset - 20, 0, homeItem.Position.Y.Offset - 20)
-		homeItem.Size = UDim2.new(0, homeItem.Size.X.Offset + 30, 0, homeItem.Size.Y.Offset + 20)
-
-		if homeItem.UIGradient.Offset.Y > 0 then
-			homeItem.UIGradient.Offset = Vector2.new(0, homeItem.UIGradient.Offset.Y + 3)
-			homeItem.UIStroke.UIGradient.Offset = Vector2.new(0, homeItem.UIStroke.UIGradient.Offset.Y + 3)
+	
+	Library_Function.GetIMG = function(url)
+		local File = 'SynAsset ['
+		local returnimage = ""
+		if string.find(url, "rbxassetid://") then
+			returnimage = url
 		else
-			homeItem.UIGradient.Offset = Vector2.new(0, homeItem.UIGradient.Offset.Y - 3)
-			homeItem.UIStroke.UIGradient.Offset = Vector2.new(0, homeItem.UIStroke.UIGradient.Offset.Y - 3)
-		end
-	end
-
-	tweenService:Create(homeContainer, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.9}):Play()
-	tweenService:Create(homeBlur, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {Size = 5}):Play()
-
-	tweenService:Create(camera, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {FieldOfView = camera.FieldOfView + 5}):Play()
-
-	task.wait(0.25)
-
-	for _, inGameUI in ipairs(localPlayer:FindFirstChildWhichIsA("PlayerGui"):GetChildren()) do
-		if inGameUI:IsA("ScreenGui") then
-			if inGameUI.Enabled then
-				if not table.find(getgenv().cachedInGameUI, inGameUI.Name) then
-					table.insert(getgenv().cachedInGameUI, #getgenv().cachedInGameUI+1, inGameUI.Name)
-				end
-
-				inGameUI.Enabled = false
-			end
-		end
-	end
-
-	table.clear(getgenv().cachedCoreUI)
-
-	for _, coreUI in pairs({"PlayerList", "Chat", "EmotesMenu", "Health", "Backpack"}) do
-		if game:GetService("StarterGui"):GetCoreGuiEnabled(coreUI) then
-			table.insert(getgenv().cachedCoreUI, #getgenv().cachedCoreUI+1, coreUI)
-		end
-	end
-
-	for _, coreUI in pairs(getgenv().cachedCoreUI) do
-		game:GetService("StarterGui"):SetCoreGuiEnabled(coreUI, false)
-	end
-
-	createReverb(0.8)
-
-	tweenService:Create(camera, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {FieldOfView = camera.FieldOfView - 40}):Play()
-
-	tweenService:Create(homeContainer, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.7}):Play()
-	tweenService:Create(homeContainer.Title, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-	tweenService:Create(homeContainer.Subtitle, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {TextTransparency = 0.4}):Play()
-	tweenService:Create(homeBlur, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {Size = 20}):Play()
-
-	for _, homeItem in ipairs(homeContainer.Interactions:GetChildren()) do
-		for _, otherHomeItem in ipairs(homeItem:GetDescendants()) do
-			if otherHomeItem.ClassName == "Frame" then
-				tweenService:Create(otherHomeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.7}):Play()
-			elseif otherHomeItem.ClassName == "TextLabel" then
-				if otherHomeItem.Name == "Title" then
-					tweenService:Create(otherHomeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-				else
-					tweenService:Create(otherHomeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0.3}):Play()
-				end
-			elseif otherHomeItem.ClassName == "ImageLabel" then
-				tweenService:Create(otherHomeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.8}):Play()
-				tweenService:Create(otherHomeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play()
-			end
-		end
-
-		tweenService:Create(homeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-		tweenService:Create(homeItem.UIStroke, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
-		tweenService:Create(homeItem, TweenInfo.new(0.5, Enum.EasingStyle.Back), {Position = UDim2.new(0, homeItem.Position.X.Offset + 20, 0, homeItem.Position.Y.Offset + 20)}):Play()
-		tweenService:Create(homeItem, TweenInfo.new(0.5, Enum.EasingStyle.Back), {Size = UDim2.new(0, homeItem.Size.X.Offset - 30, 0, homeItem.Size.Y.Offset - 20)}):Play()
-
-		task.delay(0.03, function()
-			if homeItem.UIGradient.Offset.Y > 0 then
-				tweenService:Create(homeItem.UIGradient, TweenInfo.new(1, Enum.EasingStyle.Exponential), {Offset = Vector2.new(0, homeItem.UIGradient.Offset.Y - 3)}):Play()
-				tweenService:Create(homeItem.UIStroke.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Exponential), {Offset = Vector2.new(0, homeItem.UIStroke.UIGradient.Offset.Y - 3)}):Play()
-			else
-				tweenService:Create(homeItem.UIGradient, TweenInfo.new(1, Enum.EasingStyle.Exponential), {Offset = Vector2.new(0, homeItem.UIGradient.Offset.Y + 3)}):Play()
-				tweenService:Create(homeItem.UIStroke.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Exponential), {Offset = Vector2.new(0, homeItem.UIStroke.UIGradient.Offset.Y + 3)}):Play()
-			end
-		end)
-
-		task.wait(0.02)
-	end
-
-	task.wait(0.85)
-
-	debounce = false
-end
-
-local function closeHome()
-	if debounce then return end
-	debounce = true
-
-	tweenService:Create(camera, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {FieldOfView = camera.FieldOfView + 35}):Play()
-
-	for _, obj in ipairs(lighting:GetChildren()) do
-		if obj.Name == "HomeBlur" then
-			tweenService:Create(obj, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {Size = 0}):Play()
-			task.delay(0.6, obj.Destroy, obj)
-		end
-	end
-
-	tweenService:Create(homeContainer, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-	tweenService:Create(homeContainer.Title, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-	tweenService:Create(homeContainer.Subtitle, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-
-	for _, homeItem in ipairs(homeContainer.Interactions:GetChildren()) do
-		for _, otherHomeItem in ipairs(homeItem:GetDescendants()) do
-			if otherHomeItem.ClassName == "Frame" then
-				tweenService:Create(otherHomeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-			elseif otherHomeItem.ClassName == "TextLabel" then
-				if otherHomeItem.Name == "Title" then
-					tweenService:Create(otherHomeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-				else
-					tweenService:Create(otherHomeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-				end
-			elseif otherHomeItem.ClassName == "ImageLabel" then
-				tweenService:Create(otherHomeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-				tweenService:Create(otherHomeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-			end
-		end
-		tweenService:Create(homeItem, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-		tweenService:Create(homeItem.UIStroke, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-	end
-
-	task.wait(0.2)
-
-	for _, cachedInGameUIObject in pairs(getgenv().cachedInGameUI) do
-		for _, currentPlayerUI in ipairs(localPlayer:FindFirstChildWhichIsA("PlayerGui"):GetChildren()) do
-			if table.find(getgenv().cachedInGameUI, currentPlayerUI.Name) then
-				currentPlayerUI.Enabled = true
-			end 
-		end
-	end
-
-	for _, coreUI in pairs(getgenv().cachedCoreUI) do
-		game:GetService("StarterGui"):SetCoreGuiEnabled(coreUI, true)
-	end
-
-	removeReverbs(0.5)
-
-	task.wait(0.52)
-
-	homeContainer.Visible = false
-	debounce = false
-end
-
-
-local function openScriptSearch()
-	debounce = true
-
-	scriptSearch.Size = UDim2.new(0, 480, 0, 23)
-	scriptSearch.Position = UDim2.new(0.5, 0, 0.5, 0)
-	scriptSearch.SearchBox.Position = UDim2.new(0.509, 0, 0.5, 0)
-	scriptSearch.Icon.Position = UDim2.new(0.04, 0, 0.5, 0)
-	scriptSearch.SearchBox.Text = ""
-	scriptSearch.UIGradient.Offset = Vector2.new(0, 2)
-	scriptSearch.SearchBox.PlaceholderText = "Search ScriptBlox.com"
-	scriptSearch.List.Template.Visible = false
-	scriptSearch.List.Visible = false
-	scriptSearch.Visible = true
-
-	wipeTransparency(scriptSearch, 1, true)
-
-	tweenService:Create(scriptSearch, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-	tweenService:Create(scriptSearch, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Size = UDim2.new(0, 580, 0, 43)}):Play()
-	tweenService:Create(scriptSearch.Shadow, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {ImageTransparency = 0.85}):Play()
-	task.wait(0.03)
-	tweenService:Create(scriptSearch.Icon, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {ImageTransparency = 0}):Play()
-	task.wait(0.02)
-	tweenService:Create(scriptSearch.SearchBox, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-
-
-	task.wait(0.3)
-	scriptSearch.SearchBox:CaptureFocus()
-	task.wait(0.2)
-	debounce = false
-end
-
-local function closeScriptSearch()
-	debounce = true
-
-	wipeTransparency(scriptSearch, 1, false)
-
-	task.wait(0.1)
-
-	scriptSearch.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	scriptSearch.UIGradient.Enabled = false
-	tweenService:Create(scriptSearch, TweenInfo.new(0.4, Enum.EasingStyle.Quint),  {Size = UDim2.new(0, 520, 0, 0)}):Play()
-	scriptSearch.SearchBox:ReleaseFocus()
-
-	task.wait(0.5)
-
-	for _, createdScript in ipairs(scriptSearch.List:GetChildren()) do
-		if createdScript.Name ~= "Placeholder" and createdScript.Name ~= "Template" and createdScript.ClassName == "Frame" then
-			createdScript:Destroy()
-		end
-	end
-
-	task.wait(0.1)
-	scriptSearch.BackgroundColor3 = Color3.fromRGB(255 ,255, 255)
-	scriptSearch.Visible = false
-	scriptSearch.UIGradient.Enabled = true
-	debounce = false
-end
-
-local function createScript(result)
-	local newScript = UI.ScriptSearch.List.Template:Clone()
-	newScript.Name = result.title
-	newScript.Parent = UI.ScriptSearch.List
-	newScript.Visible = true
-
-	for _, tag in ipairs(newScript.Tags:GetChildren()) do
-		if tag.ClassName == "Frame" then
-			tag.Shadow.ImageTransparency = 1
-			tag.BackgroundTransparency = 1
-			tag.Title.TextTransparency = 1
-		end
-	end
-
-	task.spawn(function()
-		local response
-
-		local success, ErrorStatement = pcall(function()
-			local responseRequest = httpRequest({
-				Url = "https://www.scriptblox.com/api/script/"..result['slug'],
-				Method = "GET"
-			})
-
-			response = httpService:JSONDecode(responseRequest.Body)
-		end)
-
-		newScript.ScriptDescription.Text = response.script.features
-
-		local likes = response.script.likeCount
-		local dislikes = response.script.dislikeCount
-
-		if likes ~= dislikes then
-			newScript.Tags.Review.Title.Text = (likes > dislikes) and "Positive Reviews" or "Negative Reviews"
-			newScript.Tags.Review.BackgroundColor3 = (likes > dislikes) and Color3.fromRGB(0, 139, 102) or Color3.fromRGB(180, 0, 0)
-			newScript.Tags.Review.Size = (likes > dislikes) and UDim2.new(0, 145, 1, 0) or UDim2.new(0, 150, 1, 0)
-		elseif likes > 0 then
-			newScript.Tags.Review.Title.Text = "Mixed Reviews"
-			newScript.Tags.Review.BackgroundColor3 = Color3.fromRGB(198, 132, 0)
-			newScript.Tags.Review.Size = UDim2.new(0, 130, 1, 0)
-		else
-			newScript.Tags.Review.Visible = false
-		end
-
-		newScript.ScriptAuthor.Text = "uploaded by "..response.script.owner.username
-		newScript.Tags.Verified.Visible = response.script.owner.verified or false
-
-		tweenService:Create(newScript, TweenInfo.new(.5, Enum.EasingStyle.Quint),  {BackgroundTransparency = 0.8}):Play()
-		tweenService:Create(newScript.ScriptName, TweenInfo.new(.5, Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-		tweenService:Create(newScript.Execute, TweenInfo.new(.5, Enum.EasingStyle.Quint),  {BackgroundTransparency = 0.8}):Play()
-		tweenService:Create(newScript.Execute, TweenInfo.new(.5, Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-
-		newScript.Tags.Visible = true
-
-		tweenService:Create(newScript.ScriptDescription, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0.3}):Play()
-		tweenService:Create(newScript.ScriptAuthor, TweenInfo.new(.5, Enum.EasingStyle.Quint),  {TextTransparency = 0.7}):Play()
-
-		for _, tag in ipairs(newScript.Tags:GetChildren()) do
-			if tag.ClassName == "Frame" then
-				tweenService:Create(tag.Shadow, TweenInfo.new(.5, Enum.EasingStyle.Quint),  {ImageTransparency = 0.7}):Play()
-				tweenService:Create(tag, TweenInfo.new(.5, Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-				tweenService:Create(tag.Title, TweenInfo.new(.5, Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-			end
-		end
-	end)
-
-	wipeTransparency(newScript, 1, true)
-
-	newScript.ScriptName.Text = result.title
-
-
-	newScript.Tags.Visible = false
-	newScript.Tags.Patched.Visible = result.isPatched or false
-
-	newScript.Execute.MouseButton1Click:Connect(function()
-		queueNotification("ScriptSearch", "Running "..result.title.. " via ScriptSearch" , 4384403532)
-		closeScriptSearch()
-		loadstring(result.script)()
-	end)
-end
-
-local function extractDomain(link)
-	local domainToReturn = link:match("([%w-_]+%.[%w-_%.]+)")
-	return domainToReturn
-end
-
-local function securityDetection(title, content, link, gradient, actions)
-	if not checkSirius() then return end
-
-	local domain = extractDomain(link) or link
-	checkFolder()
-	local currentAllowlist = isfile and isfile(siriusValues.siriusFolder.."/".."allowedLinks.srs") and readfile(siriusValues.siriusFolder.."/".."allowedLinks.srs") or nil
-	if currentAllowlist then currentAllowlist = httpService:JSONDecode(currentAllowlist) if table.find(currentAllowlist, domain) then return true end end
-
-	local newSecurityPrompt = securityPrompt:Clone()
-
-	newSecurityPrompt.Parent = UI
-	newSecurityPrompt.Name = link
-
-	wipeTransparency(newSecurityPrompt, 1, true)
-	newSecurityPrompt.Size = UDim2.new(0, 478, 0, 150)
-
-	newSecurityPrompt.Title.Text = title
-	newSecurityPrompt.Subtitle.Text = content
-	newSecurityPrompt.FoundLink.Text = domain
-
-	newSecurityPrompt.Visible = true
-	newSecurityPrompt.UIGradient.Color = gradient
-
-	newSecurityPrompt.Buttons.Template.Visible = false
-
-	local function closeSecurityPrompt()
-		tweenService:Create(newSecurityPrompt, TweenInfo.new(0.52, Enum.EasingStyle.Quint),  {Size = UDim2.new(0, 500, 0, 165)}):Play()
-		tweenService:Create(newSecurityPrompt, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {BackgroundTransparency = 1}):Play()
-		tweenService:Create(newSecurityPrompt.Title, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-		tweenService:Create(newSecurityPrompt.Subtitle, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-		tweenService:Create(newSecurityPrompt.FoundLink, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-
-
-		for _, button in ipairs(newSecurityPrompt.Buttons:GetChildren()) do
-			if button.Name ~= "Template" and button.ClassName == "TextButton" then
-				tweenService:Create(button, TweenInfo.new(0.3, Enum.EasingStyle.Quint),  {BackgroundTransparency = 1}):Play()
-				tweenService:Create(button, TweenInfo.new(0.3, Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-			end
-		end
-		task.wait(0.55)
-		newSecurityPrompt:Destroy()
-	end
-
-	local decision
-
-	for _, action in ipairs(actions) do
-		local newAction = newSecurityPrompt.Buttons.Template:Clone()
-		newAction.Name = action[1]
-		newAction.Text = action[1]
-		newAction.Parent = newSecurityPrompt.Buttons
-		newAction.Visible = true
-		newAction.Size = UDim2.new(0, newAction.TextBounds.X + 50, 0, 36) -- textbounds
-
-		newAction.MouseButton1Click:Connect(function()
-			if action[2] then
-				if action[3] then
-					checkFolder()
-					if currentAllowlist then
-						table.insert(currentAllowlist, domain)
-						writefile(siriusValues.siriusFolder.."/".."allowedLinks.srs", httpService:JSONEncode(currentAllowlist))
-					else
-						writefile(siriusValues.siriusFolder.."/".."allowedLinks.srs", httpService:JSONEncode({domain}))
+			pcall(function()
+				if url and type(url) == 'string' and tostring(game:HttpGet(url)):find('PNG') then
+					for i = 1, 5 do
+						File = tostring(File..string.char(math.random(65, 122)))
 					end
+					File = File..'].png'
+					writefile(File, game:HttpGet(url))
+					spawn(function()
+						wait(5)
+						delfile(File)
+					end)
+					returnimage = getsynasset(File)
 				end
-				decision = true
-			else
-				decision = false
-			end
-
-			closeSecurityPrompt()
-		end)
-	end
-
-	tweenService:Create(newSecurityPrompt, TweenInfo.new(0.4, Enum.EasingStyle.Quint),  {Size = UDim2.new(0, 576, 0, 181)}):Play()
-	tweenService:Create(newSecurityPrompt, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-	tweenService:Create(newSecurityPrompt.Title, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-	tweenService:Create(newSecurityPrompt.Subtitle, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {TextTransparency = 0.3}):Play()
-	task.wait(0.03)
-	tweenService:Create(newSecurityPrompt.FoundLink, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {TextTransparency = 0.2}):Play()
-
-	task.wait(0.1)
-
-	for _, button in ipairs(newSecurityPrompt.Buttons:GetChildren()) do
-		if button.Name ~= "Template" and button.ClassName == "TextButton" then
-			tweenService:Create(button, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {BackgroundTransparency = 0.7}):Play()
-			tweenService:Create(button, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {TextTransparency = 0.05}):Play()
-			task.wait(0.1)
-		end
-	end
-
-	newSecurityPrompt.FoundLink.MouseEnter:Connect(function()
-		newSecurityPrompt.FoundLink.Text = link
-		tweenService:Create(newSecurityPrompt.FoundLink, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {TextTransparency = 0.4}):Play()
-	end)
-
-	newSecurityPrompt.FoundLink.MouseLeave:Connect(function()
-		newSecurityPrompt.FoundLink.Text = domain
-		tweenService:Create(newSecurityPrompt.FoundLink, TweenInfo.new(0.5, Enum.EasingStyle.Quint),  {TextTransparency = 0.2}):Play()
-	end)
-
-	repeat task.wait() until decision
-	return decision
-end
-
-if Essential or Pro then
-	getgenv()[index] = function(data)
-		if checkSirius() and checkSetting("Intelligent HTTP Interception").current then
-			local title = "Do you trust this source?"
-			local content = "Sirius has prevented data from being sent off-client, would you like to allow data to be sent or retrieved from this source?"
-			local url = data.Url or "Unknown Link"
-			local gradient = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.new(0, 0, 0)),ColorSequenceKeypoint.new(1, Color3.new(0.764706, 0.305882, 0.0941176))})
-			local actions = {{"Always Allow", true, true}, {"Allow just this once", true}, {"Don't Allow", false}}
-
-			if url == "http://127.0.0.1:6463/rpc?v=1" then
-				local bodyDecoded = httpService:JSONDecode(data.Body)
-
-				if bodyDecoded.cmd == "INVITE_BROWSER" then
-					title = "Would you like to join this Discord server?"
-					content = "Sirius has prevented your Discord client from automatically joining this Discord server, would you like to continue and join, or block it?"
-					url = bodyDecoded.args and "discord.gg/"..bodyDecoded.args.code or "Unknown Invite"
-					gradient = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.new(0, 0, 0)),ColorSequenceKeypoint.new(1, Color3.new(0.345098, 0.396078, 0.94902))})
-					actions = {{"Allow", true}, {"Don't Allow", false}}
-				end
-			end
-
-			local answer = securityDetection(title, content, url, gradient, actions)
-
-
-			if answer then 
-				return originalRequest(data)
-			else
-				return
-			end
-		else
-			return originalRequest(data)
-		end
-	end
-
-	getgenv()[indexSetClipboard] = function(data)
-		if checkSirius() and checkSetting("Intelligent Clipboard Interception").current then
-			local title = "Would you like to copy this to your clipboard?"
-			local content = "Sirius has prevented a script from setting the below text to your clipboard, would you like to allow this, or prevent it from copying?"
-			local url = data or "Unknown Clipboard"
-			local gradient = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.new(0, 0, 0)),ColorSequenceKeypoint.new(1, Color3.new(0.776471, 0.611765, 0.529412))})
-			local actions = {{"Allow", true}, {"Don't Allow", false}}
-
-			local answer = securityDetection(title, content, url, gradient, actions)
-
-			if answer then 
-				return originalSetClipboard(data)
-			else
-				return
-			end
-		else
-			return originalSetClipboard(data)
-		end
-	end
-end
-
-
-local function searchScriptBlox(query)
-	local response
-
-	local success, ErrorStatement = pcall(function()
-		local responseRequest = httpRequest({
-			Url = "https://scriptblox.com/api/script/search?q="..httpService:UrlEncode(query).."&mode=free&max=20&page=1",
-			Method = "GET"
-		})
-
-		response = httpService:JSONDecode(responseRequest.Body)
-	end)
-
-	if not success then
-		queueNotification("ScriptSearch", "ScriptSearch backend encountered an error, try again later", 4384402990)
-		closeScriptSearch()
-		return
-	end
-
-	tweenService:Create(scriptSearch.NoScriptsTitle, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-	tweenService:Create(scriptSearch.NoScriptsDesc, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 1}):Play()
-
-	for _, createdScript in ipairs(scriptSearch.List:GetChildren()) do
-		if createdScript.Name ~= "Placeholder" and createdScript.Name ~= "Template" and createdScript.ClassName == "Frame" then
-			wipeTransparency(createdScript, 1, true)
-		end
-	end
-
-	scriptSearch.List.Visible = true
-	task.wait(0.5)
-
-	scriptSearch.List.CanvasPosition = Vector2.new(0,0)
-
-	for _, createdScript in ipairs(scriptSearch.List:GetChildren()) do
-		if createdScript.Name ~= "Placeholder" and createdScript.Name ~= "Template" and createdScript.ClassName == "Frame" then
-			createdScript:Destroy()
-		end
-	end
-
-	tweenService:Create(scriptSearch, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Size = UDim2.new(0, 580, 0, 529)}):Play()
-	tweenService:Create(scriptSearch.Icon, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Position = UDim2.new(0.054, 0, 0.056, 0)}):Play()
-	tweenService:Create(scriptSearch.SearchBox, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Position = UDim2.new(0.523, 0, 0.056, 0)}):Play()
-	tweenService:Create(scriptSearch.UIGradient, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Offset = Vector2.new(0, 0.6)}):Play()
-
-	if response then
-		local scriptCreated = false
-		for _, scriptResult in pairs(response.result.scripts) do
-			local success, response = pcall(function()
-				createScript(scriptResult)
-			end)
-
-			scriptCreated = true
-		end
-
-		if not scriptCreated then
-			task.wait(0.2)
-			tweenService:Create(scriptSearch.NoScriptsTitle, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-			task.wait(0.1)
-			tweenService:Create(scriptSearch.NoScriptsDesc, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-		else
-			tweenService:Create(scriptSearch.List, TweenInfo.new(.3,Enum.EasingStyle.Quint),  {ScrollBarImageTransparency = 0}):Play()
-		end
-	else
-		queueNotification("ScriptSearch", "ScriptSearch backend encountered an error, try again later", 4384402990)
-		closeScriptSearch()
-		return
-	end
-end
-
-local function openSmartBar()
-	smartBarOpen = true
-
-	coreGui.RobloxGui.Backpack.Position = UDim2.new(0,0,0,0)
-
-	-- Set Values for frame properties
-	smartBar.BackgroundTransparency = 1
-	smartBar.Time.TextTransparency = 1
-	smartBar.UIStroke.Transparency = 1
-	smartBar.Shadow.ImageTransparency = 1
-	smartBar.Visible = true
-	smartBar.Position = UDim2.new(0.5, 0, 1.05, 0)
-	smartBar.Size = UDim2.new(0, 531, 0, 64)
-	toggle.Rotation = 180
-	toggle.Visible = not checkSetting("Hide Toggle Button").current
-
-	if checkTools() then
-		toggle.Position = UDim2.new(0.5,0,1,-68)
-	else
-		toggle.Position = UDim2.new(0.5, 0, 1, -5)
-	end
-
-	for _, button in ipairs(smartBar.Buttons:GetChildren()) do
-		button.UIGradient.Rotation = -120
-		button.UIStroke.UIGradient.Rotation = -120
-		button.Size = UDim2.new(0,30,0,30)
-		button.Position = UDim2.new(button.Position.X.Scale, 0, 1.3, 0)
-		button.BackgroundTransparency = 1
-		button.UIStroke.Transparency = 1
-		button.Icon.ImageTransparency = 1
-	end
-
-	tweenService:Create(coreGui.RobloxGui.Backpack, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {Position = UDim2.new(-0.325,0,0,0)}):Play()
-
-	tweenService:Create(toggle, TweenInfo.new(0.82, Enum.EasingStyle.Quint), {Rotation = 0}):Play()
-	tweenService:Create(smartBar, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Position = UDim2.new(0.5, 0, 1, -12)}):Play()
-	tweenService:Create(toastsContainer, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Position = UDim2.new(0.5, 0, 1, -110)}):Play()
-	tweenService:Create(toggle, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Position = UDim2.new(0.5, 0, 1, -85)}):Play()
-	tweenService:Create(smartBar, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {Size = UDim2.new(0,581,0,70)}):Play()
-	tweenService:Create(smartBar, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-	tweenService:Create(smartBar.Shadow, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {ImageTransparency = 0.7}):Play()
-	tweenService:Create(smartBar.Time, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-	tweenService:Create(smartBar.UIStroke, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {Transparency = 0.95}):Play()
-	tweenService:Create(toggle, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play()
-
-	for _, button in ipairs(smartBar.Buttons:GetChildren()) do
-		tweenService:Create(button.UIStroke, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
-		tweenService:Create(button, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 36, 0, 36)}):Play()
-		tweenService:Create(button.UIGradient, TweenInfo.new(1, Enum.EasingStyle.Quint), {Rotation = 50}):Play()
-		tweenService:Create(button.UIStroke.UIGradient, TweenInfo.new(1, Enum.EasingStyle.Quint), {Rotation = 50}):Play()
-		tweenService:Create(button, TweenInfo.new(0.8, Enum.EasingStyle.Exponential), {Position = UDim2.new(button.Position.X.Scale, 0, 0.5, 0)}):Play()
-		tweenService:Create(button, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-		tweenService:Create(button.Icon, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play()
-		task.wait(0.03)
-	end
-end
-
-local function closeSmartBar()
-	smartBarOpen = false
-
-	for _, otherPanel in ipairs(UI:GetChildren()) do
-		if smartBar.Buttons:FindFirstChild(otherPanel.Name) then
-			if isPanel(otherPanel.Name) and otherPanel.Visible then
-				task.spawn(closePanel, otherPanel.Name, true)
-				task.wait()
-			end
-		end
-	end
-
-	tweenService:Create(smartBar.Time, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-	for _, Button in ipairs(smartBar.Buttons:GetChildren()) do
-		tweenService:Create(Button.UIStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-		tweenService:Create(Button, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 30, 0, 30)}):Play()
-		tweenService:Create(Button, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-		tweenService:Create(Button.Icon, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-	end
-
-	tweenService:Create(coreGui.RobloxGui.Backpack, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {Position = UDim2.new(0, 0, 0, 0)}):Play()
-
-	tweenService:Create(smartBar, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
-	tweenService:Create(smartBar.UIStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-	tweenService:Create(smartBar.Shadow, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-	tweenService:Create(smartBar, TweenInfo.new(0.5, Enum.EasingStyle.Back), {Size = UDim2.new(0,531,0,64)}):Play()
-	tweenService:Create(smartBar, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {Position = UDim2.new(0.5, 0,1, 73)}):Play()
-
-	-- If tools, move the toggle
-	if checkTools() then
-		tweenService:Create(toggle, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {Position = UDim2.new(0.5,0,1,-68)}):Play()
-		tweenService:Create(toastsContainer, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {Position = UDim2.new(0.5, 0, 1, -90)}):Play()
-		tweenService:Create(toggle, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Rotation = 180}):Play()
-	else
-		tweenService:Create(toastsContainer, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {Position = UDim2.new(0.5, 0, 1, -28)}):Play()
-		tweenService:Create(toggle, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {Position = UDim2.new(0.5, 0, 1, -5)}):Play()
-		tweenService:Create(toggle, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Rotation = 180}):Play()
-	end
-end
-
-local function windowFocusChanged(value)
-	if checkSirius() then
-		if value then -- Window Focused
-			setfpscap(tonumber(checkSetting("Artificial FPS Limit").current))
-			removeReverbs(0.5)
-		else          -- Window unfocused
-			if checkSetting("Muffle audio while unfocused").current then createReverb(0.7) end
-			if checkSetting("Limit FPS while unfocused").current then setfpscap(60) end
-		end
-	end
-end
-
-local function onChatted(player, message)
-	local enabled = checkSetting("Chat Spy").current and siriusValues.chatSpy.enabled
-	local chatSpyVisuals = siriusValues.chatSpy.visual
-
-	if not message or not checkSirius() then return end
-
-	if enabled and player ~= localPlayer then
-		local message2 = message:gsub("[\n\r]",''):gsub("\t",' '):gsub("[ ]+",' ')
-		local hidden = true
-
-		local get = getMessage.OnClientEvent:Connect(function(packet, channel)
-			if packet.SpeakerUserId == player.UserId and packet.Message == message2:sub(#message2-#packet.Message+1) and (channel=="All" or (channel=="Team" and players[packet.FromSpeaker].Team == localPlayer.Team)) then
-				hidden = false
-			end
-		end)
-
-		task.wait(1)
-
-		get:Disconnect()
-
-		if hidden and enabled then
-			chatSpyVisuals.Text = "Sirius Spy - [".. player.Name .."]: "..message2
-			starterGui:SetCore("ChatMakeSystemMessage", chatSpyVisuals)
-		end
-	end
-
-	if checkSetting("Log Messages").current then
-		local logData = {
-			["content"] = message,
-			["avatar_url"] = "https://www.roblox.com/headshot-thumbnail/image?userId="..player.UserId.."&width=420&height=420&format=png",
-			["username"] = player.DisplayName,
-			["allowed_mentions"] = {parse = {}}
-		}
-
-		logData = httpService:JSONEncode(logData)
-
-		pcall(function()
-			local req = originalRequest({
-				Url = checkSetting("Message Webhook URL").current,
-				Method = 'POST',
-				Headers = {
-					['Content-Type'] = 'application/json',
-				},
-				Body = logData
-			})
-		end)
-	end
-end
-
-local function sortPlayers()
-	local newTable = playerlistPanel.Interactions.List:GetChildren()
-
-	for index, player in ipairs(newTable) do
-		if player.ClassName ~= "Frame" or player.Name == "Placeholder" then
-			table.remove(newTable, index)
-		end
-	end
-
-	table.sort(newTable, function(playerA, playerB)
-		return playerA.Name < playerB.Name
-	end)
-
-	for index, frame in ipairs(newTable) do
-		if frame.ClassName == "Frame" then
-			if frame.Name ~= "Placeholder" then
-				frame.LayoutOrder = index 
-			end
-		end
-	end
-end
-
-local function kill(player)
-	-- kill
-end
-
-local function teleportTo(player)
-	if players:FindFirstChild(player.Name) then
-		queueNotification("Teleportation", "Teleporting to "..player.DisplayName..".")
-
-		local target = workspace:FindFirstChild(player.Name).HumanoidRootPart
-		localPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(target.Position.X, target.Position.Y, target.Position.Z)
-	else
-		queueNotification("Teleportation Error", player.DisplayName.." has left this server.")
-	end
-end
-
-local function createPlayer(player)
-	if not checkSirius() then return end
-
-	if playerlistPanel.Interactions.List:FindFirstChild(player.DisplayName) then return end
-
-	local newPlayer = playerlistPanel.Interactions.List.Template:Clone()
-	newPlayer.Name = player.DisplayName
-	newPlayer.Parent = playerlistPanel.Interactions.List
-	newPlayer.Visible = not searchingForPlayer
-
-	newPlayer.NoActions.Visible = false
-	newPlayer.PlayerInteractions.Visible = false
-	newPlayer.Role.Visible = false
-
-	newPlayer.Size = UDim2.new(0, 539, 0, 45)
-	newPlayer.DisplayName.Position = UDim2.new(0, 53, 0.5, 0)
-	newPlayer.DisplayName.Size = UDim2.new(0, 224, 0, 16)
-	newPlayer.Avatar.Size = UDim2.new(0, 30, 0, 30)
-
-	sortPlayers()
-
-	newPlayer.DisplayName.TextTransparency = 0
-	newPlayer.DisplayName.TextScaled = true
-	newPlayer.DisplayName.FontFace.Weight = Enum.FontWeight.Medium
-	newPlayer.DisplayName.Text = player.DisplayName
-	newPlayer.Avatar.Image = "https://www.roblox.com/headshot-thumbnail/image?userId="..player.UserId.."&width=420&height=420&format=png"
-
-	if creatorType == Enum.CreatorType.Group then
-		task.spawn(function()
-			local role = player:GetRoleInGroup(creatorId)
-			if role == "Guest" then
-				newPlayer.Role.Text = "Group Rank: None"
-			else
-				newPlayer.Role.Text = "Group Rank: "..role
-			end
-
-			newPlayer.Role.Visible = true
-			newPlayer.Role.TextTransparency = 1
-		end)
-	end
-
-	local function openInteractions()
-		if newPlayer.PlayerInteractions.Visible then return end
-
-		newPlayer.PlayerInteractions.BackgroundTransparency = 1
-		for _, interaction in ipairs(newPlayer.PlayerInteractions:GetChildren()) do
-			if interaction.ClassName == "Frame" and interaction.Name ~= "Placeholder" then
-				interaction.BackgroundTransparency = 1
-				interaction.Shadow.ImageTransparency = 1
-				interaction.Icon.ImageTransparency = 1
-				interaction.UIStroke.Transparency = 1
-			end
-		end
-
-		newPlayer.PlayerInteractions.Visible = true
-
-		for _, interaction in ipairs(newPlayer.PlayerInteractions:GetChildren()) do
-			if interaction.ClassName == "Frame" and interaction.Name ~= "Placeholder" then
-				tweenService:Create(interaction.UIStroke, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
-				tweenService:Create(interaction.Icon, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play()
-				tweenService:Create(interaction.Shadow, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 0.7}):Play()
-				tweenService:Create(interaction, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-			end
-		end
-	end
-
-	local function closeInteractions()
-		if not newPlayer.PlayerInteractions.Visible then return end
-		for _, interaction in ipairs(newPlayer.PlayerInteractions:GetChildren()) do
-			if interaction.ClassName == "Frame" and interaction.Name ~= "Placeholder" then
-				tweenService:Create(interaction.UIStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-				tweenService:Create(interaction.Icon, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-				tweenService:Create(interaction.Shadow, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-				tweenService:Create(interaction, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-			end
-		end
-		task.wait(0.35)
-		newPlayer.PlayerInteractions.Visible = false
-	end
-
-	newPlayer.MouseEnter:Connect(function()
-		if debounce or not playerlistPanel.Visible then return end
-		tweenService:Create(newPlayer.UIStroke, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-		tweenService:Create(newPlayer.DisplayName, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0.3}):Play()
-	end)
-
-	newPlayer.MouseLeave:Connect(function()
-		if debounce or not playerlistPanel.Visible then return end
-		task.spawn(closeInteractions)
-		tweenService:Create(newPlayer.DisplayName, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Position = UDim2.new(0, 53, 0.5, 0)}):Play()
-		tweenService:Create(newPlayer, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 539, 0, 45)}):Play()
-		tweenService:Create(newPlayer.Avatar, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 30, 0, 30)}):Play()
-		tweenService:Create(newPlayer.UIStroke, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
-		tweenService:Create(newPlayer.DisplayName, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-		tweenService:Create(newPlayer.Role, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-	end)
-
-	newPlayer.Interact.MouseButton1Click:Connect(function()
-		if debounce or not playerlistPanel.Visible then return end
-		if creatorType == Enum.CreatorType.Group then
-			tweenService:Create(newPlayer.DisplayName, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Position = UDim2.new(0, 73, 0.39, 0)}):Play()
-			tweenService:Create(newPlayer.Role, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0.3}):Play()
-		else
-			tweenService:Create(newPlayer.DisplayName, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Position = UDim2.new(0, 73, 0.5, 0)}):Play()
-		end
-
-		if player ~= localPlayer then openInteractions() end
-
-		tweenService:Create(newPlayer, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 539, 0, 75)}):Play()
-
-		tweenService:Create(newPlayer.DisplayName, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-		tweenService:Create(newPlayer.Avatar, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 50, 0, 50)}):Play()
-		tweenService:Create(newPlayer.UIStroke, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
-	end)
-
-	newPlayer.PlayerInteractions.Kill.Interact.MouseButton1Click:Connect(function()
-		queueNotification("Simulation Notification","Simulating Kill Notification for "..player.DisplayName..".")
-		tweenService:Create(newPlayer.PlayerInteractions.Kill, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(0, 124, 89)}):Play()
-		tweenService:Create(newPlayer.PlayerInteractions.Kill.Icon, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(220, 220, 220)}):Play()
-		tweenService:Create(newPlayer.PlayerInteractions.Kill.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Color = Color3.fromRGB(0, 134, 96)}):Play()
-		kill(player)
-		task.wait(1)
-		tweenService:Create(newPlayer.PlayerInteractions.Kill, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(50, 50, 50)}):Play()
-		tweenService:Create(newPlayer.PlayerInteractions.Kill.Icon, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(100, 100, 100)}):Play()
-		tweenService:Create(newPlayer.PlayerInteractions.Kill.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Color = Color3.fromRGB(60, 60, 60)}):Play()
-	end)
-
-	newPlayer.PlayerInteractions.Teleport.Interact.MouseButton1Click:Connect(function()
-		tweenService:Create(newPlayer.PlayerInteractions.Teleport, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(0, 152, 111)}):Play()
-		tweenService:Create(newPlayer.PlayerInteractions.Teleport.Icon, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(220, 220, 220)}):Play()
-		tweenService:Create(newPlayer.PlayerInteractions.Teleport.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Color = Color3.fromRGB(0, 152, 111)}):Play()
-		teleportTo(player)
-		task.wait(0.5)
-		tweenService:Create(newPlayer.PlayerInteractions.Teleport, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(50, 50, 50)}):Play()
-		tweenService:Create(newPlayer.PlayerInteractions.Teleport.Icon, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(100, 100, 100)}):Play()
-		tweenService:Create(newPlayer.PlayerInteractions.Teleport.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Color = Color3.fromRGB(60, 60, 60)}):Play()
-	end)
-
-	newPlayer.PlayerInteractions.Spectate.Interact.MouseButton1Click:Connect(function()
-		queueNotification("Simulation Notification","Simulating Spectate Notification for "..player.DisplayName..".")
-		-- Spectate
-	end)
-
-	newPlayer.PlayerInteractions.Locate.Interact.MouseButton1Click:Connect(function()
-		queueNotification("Simulation Notification","Simulating Locate ESP Notification for "..player.DisplayName..".")
-		-- ESP for that user only
-	end)
-end
-
-local function removePlayer(player)
-	if not checkSirius() then return end
-
-	if playerlistPanel.Interactions.List:FindFirstChild(player.Name) then
-		playerlistPanel.Interactions.List:FindFirstChild(player.Name):Destroy()
-	end
-end
-
-local function openSettings()
-	debounce = true
-
-	settingsPanel.BackgroundTransparency = 1
-	settingsPanel.Title.TextTransparency = 1
-	settingsPanel.Subtitle.TextTransparency = 1
-	settingsPanel.Back.ImageTransparency = 1
-	settingsPanel.Shadow.ImageTransparency = 1
-
-	wipeTransparency(settingsPanel.SettingTypes, 1, true)
-
-	settingsPanel.Visible = true
-	settingsPanel.UIGradient.Enabled = true
-	settingsPanel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	settingsPanel.UIGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.new(0.0470588, 0.0470588, 0.0470588)),ColorSequenceKeypoint.new(1, Color3.new(0.0470588, 0.0470588, 0.0470588))})
-	settingsPanel.UIGradient.Offset = Vector2.new(0, 1.7)
-	settingsPanel.SettingTypes.Visible = true
-	settingsPanel.SettingLists.Visible = false
-	settingsPanel.Size = UDim2.new(0, 550, 0, 340)
-	settingsPanel.Title.Position = UDim2.new(0.045, 0, 0.057, 0)
-
-	settingsPanel.Title.Text = "Settings"
-	settingsPanel.Subtitle.Text = "Adjust your preferences, set new keybinds, test out new features and more."
-
-	tweenService:Create(settingsPanel, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 613, 0, 384)}):Play()
-	tweenService:Create(settingsPanel, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-	tweenService:Create(settingsPanel.Shadow, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 0.7}):Play()
-	tweenService:Create(settingsPanel.Title, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-	tweenService:Create(settingsPanel.Subtitle, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-
-	task.wait(0.1)
-
-	for _, settingType in ipairs(settingsPanel.SettingTypes:GetChildren()) do
-		if settingType.ClassName == "Frame" then
-			local gradientRotation = math.random(78, 95)
-
-			tweenService:Create(settingType.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Rotation = gradientRotation}):Play()
-			tweenService:Create(settingType.Shadow.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Rotation = gradientRotation}):Play()
-			tweenService:Create(settingType.UIStroke.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Rotation = gradientRotation}):Play()
-			tweenService:Create(settingType, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-			tweenService:Create(settingType.Shadow, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 0.7}):Play()
-			tweenService:Create(settingType.UIStroke, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
-			tweenService:Create(settingType.Title, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0.2}):Play()
-
-			task.wait(0.02)
-		end
-	end
-
-	for _, settingList in ipairs(settingsPanel.SettingLists:GetChildren()) do
-		if settingList.ClassName == "ScrollingFrame" then
-			for _, setting in ipairs(settingList:GetChildren()) do
-				if setting.ClassName == "Frame" then
-					setting.Visible = true
-				end
-			end
-		end
-	end
-
-	debounce = false
-end
-
-local function closeSettings()
-	debounce = true
-
-	for _, settingType in ipairs(settingsPanel.SettingTypes:GetChildren()) do
-		if settingType.ClassName == "Frame" then
-			tweenService:Create(settingType, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-			tweenService:Create(settingType.Shadow, TweenInfo.new(0.05, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-			tweenService:Create(settingType.UIStroke, TweenInfo.new(0.05, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-			tweenService:Create(settingType.Title, TweenInfo.new(0.05, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-		end
-	end
-
-	tweenService:Create(settingsPanel.Shadow, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-	tweenService:Create(settingsPanel.Back, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-	tweenService:Create(settingsPanel.Title, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-	tweenService:Create(settingsPanel.Subtitle, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-
-	for _, settingList in ipairs(settingsPanel.SettingLists:GetChildren()) do
-		if settingList.ClassName == "ScrollingFrame" then
-			for _, setting in ipairs(settingList:GetChildren()) do
-				if setting.ClassName == "Frame" then
-					setting.Visible = false
-				end
-			end
-		end
-	end
-
-	tweenService:Create(settingsPanel, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 520, 0, 0)}):Play()
-	tweenService:Create(settingsPanel, TweenInfo.new(0.55, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-
-	task.wait(0.55)
-
-	settingsPanel.Visible = false
-	debounce = false
-end
-
-local function saveSettings()
-	checkFolder()
-
-	if isfile and isfile(siriusValues.siriusFolder.."/"..siriusValues.settingsFile) then
-		writefile(siriusValues.siriusFolder.."/"..siriusValues.settingsFile, httpService:JSONEncode(siriusSettings))
-	end
-end
-
-local function assembleSettings()
-	if isfile and isfile(siriusValues.siriusFolder.."/"..siriusValues.settingsFile) then
-		local currentSettings
-
-		local success, response = pcall(function()
-			currentSettings = httpService:JSONDecode(readfile(siriusValues.siriusFolder.."/"..siriusValues.settingsFile))
-		end)
-
-		if success then
-			for _, liveCategory in ipairs(siriusSettings) do
-				for _, liveSetting in ipairs(liveCategory.categorySettings) do
-					for _, category in ipairs(currentSettings) do
-						for _, setting in ipairs(category.categorySettings) do
-							if liveSetting.id == setting.id then
-								liveSetting.current = setting.current
-							end
-						end
-					end
-				end
-			end
-
-			writefile(siriusValues.siriusFolder.."/"..siriusValues.settingsFile, httpService:JSONEncode(siriusSettings)) -- Update file with any new settings added
-		end
-	else
-		if writefile then
-			checkFolder()
-			if not isfile(siriusValues.siriusFolder.."/"..siriusValues.settingsFile) then
-				writefile(siriusValues.siriusFolder.."/"..siriusValues.settingsFile, httpService:JSONEncode(siriusSettings))
-			end
-		end 
-	end
-
-	for _, category in siriusSettings do
-		local newCategory = settingsPanel.SettingTypes.Template:Clone()
-		newCategory.Name = category.name
-		newCategory.Title.Text = string.upper(category.name)
-		newCategory.Parent = settingsPanel.SettingTypes
-		newCategory.UIGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.new(0.0392157, 0.0392157, 0.0392157)),ColorSequenceKeypoint.new(1, category.color)})
-
-		newCategory.Visible = true
-
-		local hue, sat, val = Color3.toHSV(category.color)
-
-		hue = math.clamp(hue + 0.01, 0, 1) sat = math.clamp(sat + 0.1, 0, 1) val = math.clamp(val + 0.2, 0, 1)
-
-		local newColor = Color3.fromHSV(hue, sat, val)
-		newCategory.UIStroke.UIGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.new(0.117647, 0.117647, 0.117647)),ColorSequenceKeypoint.new(1, newColor)})
-		newCategory.Shadow.UIGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.new(0.117647, 0.117647, 0.117647)),ColorSequenceKeypoint.new(1, newColor)})
-
-		local newList = settingsPanel.SettingLists.Template:Clone()
-		newList.Name = category.name
-		newList.Parent = settingsPanel.SettingLists
-
-		newList.Visible = true
-
-		for _, obj in ipairs(newList:GetChildren()) do if obj.Name ~= "Placeholder" and obj.Name ~= "UIListLayout" then obj:Destroy() end end 
-
-		settingsPanel.Back.MouseButton1Click:Connect(function()
-			tweenService:Create(settingsPanel.Back, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-			tweenService:Create(settingsPanel.Back, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Position = UDim2.new(0.002, 0, 0.052, 0)}):Play()
-			tweenService:Create(settingsPanel.Title, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Position = UDim2.new(0.045, 0, 0.057, 0)}):Play()
-			tweenService:Create(settingsPanel.UIGradient, TweenInfo.new(1, Enum.EasingStyle.Exponential), {Offset = Vector2.new(0, 1.3)}):Play()
-			settingsPanel.Title.Text = "Settings"
-			settingsPanel.Subtitle.Text = "Adjust your preferences, set new keybinds, test out new features and more"
-			settingsPanel.SettingTypes.Visible = true
-			settingsPanel.SettingLists.Visible = false
-		end)
-
-		newCategory.Interact.MouseButton1Click:Connect(function()
-			if settingsPanel.SettingLists:FindFirstChild(category.name) then
-				settingsPanel.UIGradient.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.new(0.0470588, 0.0470588, 0.0470588)),ColorSequenceKeypoint.new(1, category.color)})
-				settingsPanel.SettingTypes.Visible = false
-				settingsPanel.SettingLists.Visible = true
-				settingsPanel.SettingLists.UIPageLayout:JumpTo(settingsPanel.SettingLists[category.name])
-				settingsPanel.Subtitle.Text = category.description
-				settingsPanel.Back.Visible = true
-				settingsPanel.Title.Text = category.name
-
-				local gradientRotation = math.random(78, 95)
-				settingsPanel.UIGradient.Rotation = gradientRotation
-				tweenService:Create(settingsPanel.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Exponential), {Offset = Vector2.new(0, 0.65)}):Play()
-				tweenService:Create(settingsPanel.Back, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play()
-				tweenService:Create(settingsPanel.Back, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Position = UDim2.new(0.041, 0, 0.052, 0)}):Play()
-				tweenService:Create(settingsPanel.Title, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {Position = UDim2.new(0.091, 0, 0.057, 0)}):Play()
-			else
-				-- error
-				closeSettings()
-			end
-		end)
-
-		newCategory.MouseEnter:Connect(function()
-			tweenService:Create(newCategory.Title, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-			tweenService:Create(newCategory.UIGradient, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Offset = Vector2.new(0, 0.4)}):Play()
-			tweenService:Create(newCategory.UIStroke.UIGradient, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Offset = Vector2.new(0, 0.2)}):Play()
-			tweenService:Create(newCategory.Shadow.UIGradient, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Offset = Vector2.new(0, 0.2)}):Play()
-		end)
-
-		newCategory.MouseLeave:Connect(function()
-			tweenService:Create(newCategory.Title, TweenInfo.new(0.5, Enum.EasingStyle.Quint), {TextTransparency = 0.2}):Play()
-			tweenService:Create(newCategory.UIGradient, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Offset = Vector2.new(0, 0.65)}):Play()
-			tweenService:Create(newCategory.UIStroke.UIGradient, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Offset = Vector2.new(0, 0.4)}):Play()
-			tweenService:Create(newCategory.Shadow.UIGradient, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Offset = Vector2.new(0, 0.4)}):Play()
-		end)
-
-		for _, setting in ipairs(category.categorySettings) do
-			if not setting.hidden then
-				local settingType = setting.settingType
-				local minimumLicense = setting.minimumLicense
-				local object = nil
-
-				if settingType == "Boolean" then
-					local newSwitch = settingsPanel.SettingLists.Template.SwitchTemplate:Clone()
-					object = newSwitch
-					newSwitch.Name = setting.name
-					newSwitch.Parent = newList
-					newSwitch.Visible = true
-					newSwitch.Title.Text = setting.name
-
-					if setting.current == true then
-						newSwitch.Switch.Indicator.Position = UDim2.new(1, -20, 0.5, 0)
-						newSwitch.Switch.Indicator.UIStroke.Color = Color3.fromRGB(220, 220, 220)
-						newSwitch.Switch.Indicator.BackgroundColor3 = Color3.fromRGB(255, 255, 255)			
-						newSwitch.Switch.Indicator.BackgroundTransparency = 0.6
-					end
-
-
-					if minimumLicense then
-						if (minimumLicense == "Pro" and not Pro) or (minimumLicense == "Essential" and not (Pro or Essential)) then
-							newSwitch.Switch.Indicator.Position = UDim2.new(1, -40, 0.5, 0)
-							newSwitch.Switch.Indicator.UIStroke.Color = Color3.fromRGB(255, 255, 255)
-							newSwitch.Switch.Indicator.BackgroundColor3 = Color3.fromRGB(235, 235, 235)			
-							newSwitch.Switch.Indicator.BackgroundTransparency = 0.75
-						end
-					end
-
-					newSwitch.Interact.MouseButton1Click:Connect(function()
-						if minimumLicense then
-							if (minimumLicense == "Pro" and not Pro) or (minimumLicense == "Essential" and not (Pro or Essential)) then
-								queueNotification("This feature is locked", "You must be "..minimumLicense.." or higher to use "..setting.name..". \n\nUpgrade at https://sirius.menu.", 4483345875)
-								return
-							end
-						end
-
-						setting.current = not setting.current
-						saveSettings()
-						if setting.current == true then
-							tweenService:Create(newSwitch.Switch.Indicator, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(1, -20, 0.5, 0)}):Play()
-							tweenService:Create(newSwitch.Switch.Indicator, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0,12,0,12)}):Play()
-							tweenService:Create(newSwitch.Switch.Indicator.UIStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Color = Color3.fromRGB(200, 200, 200)}):Play()
-							tweenService:Create(newSwitch.Switch.Indicator, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundColor3 = Color3.fromRGB(255, 255, 255)}):Play()
-							tweenService:Create(newSwitch.Switch.Indicator.UIStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Transparency = 0.5}):Play()
-							tweenService:Create(newSwitch.Switch.Indicator, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0.6}):Play()
-							task.wait(0.05)
-							tweenService:Create(newSwitch.Switch.Indicator, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0,17,0,17)}):Play()							
-						else
-							tweenService:Create(newSwitch.Switch.Indicator, TweenInfo.new(0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(1, -40, 0.5, 0)}):Play()
-							tweenService:Create(newSwitch.Switch.Indicator, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0,12,0,12)}):Play()
-							tweenService:Create(newSwitch.Switch.Indicator.UIStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Color = Color3.fromRGB(255, 255, 255)}):Play()
-							tweenService:Create(newSwitch.Switch.Indicator.UIStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Transparency = 0.7}):Play()
-							tweenService:Create(newSwitch.Switch.Indicator, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundColor3 = Color3.fromRGB(235, 235, 235)}):Play()
-							tweenService:Create(newSwitch.Switch.Indicator, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0.75}):Play()
-							task.wait(0.05)
-							tweenService:Create(newSwitch.Switch.Indicator, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0,17,0,17)}):Play()
-						end
-					end)
-
-				elseif settingType == "Input" then
-					local newInput = settingsPanel.SettingLists.Template.InputTemplate:Clone()
-					object = newInput
-
-					newInput.Name = setting.name
-					newInput.InputFrame.InputBox.Text = setting.current
-					newInput.InputFrame.InputBox.PlaceholderText = setting.placeholder or "input"
-					newInput.Parent = newList
-
-					if string.len(setting.current) > 19 then
-						newInput.InputFrame.InputBox.Text = string.sub(tostring(setting.current), 1,17)..".."
-					else
-						newInput.InputFrame.InputBox.Text = setting.current
-					end
-
-					newInput.Visible = true
-					newInput.Title.Text = setting.name
-					newInput.InputFrame.InputBox.TextWrapped = false
-					newInput.InputFrame.Size = UDim2.new(0, newInput.InputFrame.InputBox.TextBounds.X + 24, 0, 30)
-
-					newInput.InputFrame.InputBox.FocusLost:Connect(function()
-						if minimumLicense then
-							if (minimumLicense == "Pro" and not Pro) or (minimumLicense == "Essential" and not (Pro or Essential)) then
-								queueNotification("This feature is locked", "You must be "..minimumLicense.." or higher to use "..setting.name..". \n\nUpgrade at https://sirius.menu.", 4483345875)
-								newInput.InputFrame.InputBox.Text = setting.current
-								return
-							end
-						end
-
-						if newInput.InputFrame.InputBox.Text ~= nil or "" then
-							setting.current = newInput.InputFrame.InputBox.Text
-							saveSettings()
-						end
-						if string.len(setting.current) > 24 then
-							newInput.InputFrame.InputBox.Text = string.sub(tostring(setting.current), 1,22)..".."
-						else
-							newInput.InputFrame.InputBox.Text = setting.current
-						end
-					end)
-
-					newInput.InputFrame.InputBox:GetPropertyChangedSignal("Text"):Connect(function()
-						tweenService:Create(newInput.InputFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2.new(0, newInput.InputFrame.InputBox.TextBounds.X + 24, 0, 30)}):Play()
-					end)
-
-				elseif settingType == "Number" then
-					local newInput = settingsPanel.SettingLists.Template.InputTemplate:Clone()
-					object = newInput
-
-					newInput.Name = setting.name
-					newInput.InputFrame.InputBox.Text = tostring(setting.current)
-					newInput.InputFrame.InputBox.PlaceholderText = setting.placeholder or "number"
-					newInput.Parent = newList
-
-					if string.len(setting.current) > 19 then
-						newInput.InputFrame.InputBox.Text = string.sub(tostring(setting.current), 1,17)..".."
-					else
-						newInput.InputFrame.InputBox.Text = setting.current
-					end
-
-					newInput.Visible = true
-					newInput.Title.Text = setting.name
-					newInput.InputFrame.InputBox.TextWrapped = false
-					newInput.InputFrame.Size = UDim2.new(0, newInput.InputFrame.InputBox.TextBounds.X + 24, 0, 30)
-
-					newInput.InputFrame.InputBox.FocusLost:Connect(function()
-
-						if minimumLicense then
-							if (minimumLicense == "Pro" and not Pro) or (minimumLicense == "Essential" and not (Pro or Essential)) then
-								queueNotification("This feature is locked", "You must be "..minimumLicense.." or higher to use "..setting.name..". \n\nUpgrade at https://sirius.menu.", 4483345875)
-								newInput.InputFrame.InputBox.Text = setting.current
-								return
-							end
-						end
-
-						local inputValue = tonumber(newInput.InputFrame.InputBox.Text)
-
-						if inputValue then
-							if setting.values then
-								local minValue = setting.values[1]
-								local maxValue = setting.values[2]
-
-								if inputValue < minValue then
-									setting.current = minValue
-								elseif inputValue > maxValue then
-									setting.current = maxValue
-								else
-									setting.current = inputValue
-								end
-
-								saveSettings()
-							else
-								setting.current = inputValue
-								saveSettings()
-							end
-						else
-							newInput.InputFrame.InputBox.Text = tostring(setting.current)
-						end
-
-						if string.len(setting.current) > 24 then
-							newInput.InputFrame.InputBox.Text = string.sub(tostring(setting.current), 1,22)..".."
-						else
-							newInput.InputFrame.InputBox.Text = tostring(setting.current)
-						end
-					end)
-
-					newInput.InputFrame.InputBox:GetPropertyChangedSignal("Text"):Connect(function()
-						tweenService:Create(newInput.InputFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2.new(0, newInput.InputFrame.InputBox.TextBounds.X + 24, 0, 30)}):Play()
-					end)
-
-				elseif settingType == "Key" then
-					local newKeybind = settingsPanel.SettingLists.Template.InputTemplate:Clone()
-					object = newKeybind
-					newKeybind.Name = setting.name
-					newKeybind.InputFrame.InputBox.PlaceholderText = setting.placeholder or "listening.."
-					newKeybind.InputFrame.InputBox.Text = setting.current or "No Keybind"
-					newKeybind.Parent = newList
-
-					newKeybind.Visible = true
-					newKeybind.Title.Text = setting.name
-					newKeybind.InputFrame.InputBox.TextWrapped = false
-					newKeybind.InputFrame.Size = UDim2.new(0, newKeybind.InputFrame.InputBox.TextBounds.X + 24, 0, 30)
-
-					newKeybind.InputFrame.InputBox.FocusLost:Connect(function()
-						checkingForKey = false
-
-						if minimumLicense then
-							if (minimumLicense == "Pro" and not Pro) or (minimumLicense == "Essential" and not (Pro or Essential)) then
-								queueNotification("This feature is locked", "You must be "..minimumLicense.." or higher to use "..setting.name..". \n\nUpgrade at https://sirius.menu.", 4483345875)
-								newKeybind.InputFrame.InputBox.Text = setting.current
-								return
-							end
-						end
-
-						if newKeybind.InputFrame.InputBox.Text == nil or newKeybind.InputFrame.InputBox.Text == "" then
-							newKeybind.InputFrame.InputBox.Text = "No Keybind"
-							setting.current = nil
-							newKeybind.InputFrame.InputBox:ReleaseFocus()
-							saveSettings()
-						end
-					end)
-
-					newKeybind.InputFrame.InputBox.Focused:Connect(function()
-						checkingForKey = {data = setting, object = newKeybind}
-						newKeybind.InputFrame.InputBox.Text = ""
-					end)
-
-					newKeybind.InputFrame.InputBox:GetPropertyChangedSignal("Text"):Connect(function()
-						tweenService:Create(newKeybind.InputFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2.new(0, newKeybind.InputFrame.InputBox.TextBounds.X + 24, 0, 30)}):Play()
-					end)
-
-				end
-
-				if object then
-					if setting.description then
-						object.Description.Visible = true
-						object.Description.TextWrapped = true
-						object.Description.Size = UDim2.new(0, 333, 5, 0)
-						object.Description.Size = UDim2.new(0, 333, 0, 999)
-						object.Description.Text = setting.description
-						object.Description.Size = UDim2.new(0, 333, 0, object.Description.TextBounds.Y + 10)
-						object.Size = UDim2.new(0, 558, 0, object.Description.TextBounds.Y + 44)
-					end
-
-					if minimumLicense then
-						object.LicenseDisplay.Visible = true
-						object.Title.Position = UDim2.new(0, 18, 0, 26)
-						object.Description.Position = UDim2.new(0, 18, 0, 43)
-						object.Size = UDim2.new(0, 558, 0, object.Size.Y.Offset + 13)
-						object.LicenseDisplay.Text = string.upper(minimumLicense).." FEATURE"
-					end
-
-					local objectTouching
-					object.MouseEnter:Connect(function()
-						objectTouching = true
-						tweenService:Create(object.UIStroke, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Transparency = 0.45}):Play()
-						tweenService:Create(object, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0.83}):Play()
-					end)
-
-					object.MouseLeave:Connect(function()
-						objectTouching = false
-						tweenService:Create(object.UIStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Transparency = 0.6}):Play()
-						tweenService:Create(object, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0.9}):Play()
-					end)
-
-					if object:FindFirstChild('Interact') then
-						object.Interact.MouseButton1Click:Connect(function()
-							tweenService:Create(object.UIStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Transparency = 1}):Play()
-							tweenService:Create(object, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0.8}):Play()
-							task.wait(0.1)
-							if objectTouching then
-								tweenService:Create(object.UIStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Transparency = 0.45}):Play()
-								tweenService:Create(object, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0.83}):Play()
-							else
-								tweenService:Create(object.UIStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Transparency = 0.6}):Play()
-								tweenService:Create(object, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {BackgroundTransparency = 0.9}):Play()
-							end
-						end)
-					end
-				end
-			end
-		end
-	end
-end
-
-local function initialiseAntiKick()
-	if checkSetting("Client-Based Anti Kick").current then
-		if hookmetamethod then 
-			local originalIndex
-			local originalNamecall
-
-			originalIndex = hookmetamethod(game, "__index", function(self, method)
-				if self == localPlayer and method:lower() == "kick" and checkSetting("Client-Based Anti Kick").current and checkSirius() then
-					queueNotification("Kick Prevented", "Sirius has prevented you from being kicked by the client.", 4400699701)
-					return error("Expected ':' not '.' calling member function Kick", 2)
-				end
-				return originalIndex(self, method)
-			end)
-
-			originalNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-				if self == localPlayer and getnamecallmethod():lower() == "kick" and checkSetting("Client-Based Anti Kick").current and checkSirius() then
-					queueNotification("Kick Prevented", "Sirius has prevented you from being kicked by the client.", 4400699701)
-					return
-				end
-				return originalNamecall(self, ...)
 			end)
 		end
+		return returnimage
 	end
-end
-
-local function start()
-	if siriusValues.releaseType == "Experimental" then -- Make this more secure.
-		if not Pro then localPlayer:Kick("This is an experimental release, you must be Pro to run this. \n\nUpgrade at https://sirius.menu/") return end
+	
+	
+	Library_Function.Gui = Instance.new('ScreenGui')
+	Library_Function.Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	Library_Function.Gui.Name = 'CTE HUB GUI'
+	
+	getgenv().ReadyForGuiLoaded = false
+	spawn(function()
+		Library_Function.Gui.Enabled = false
+		repeat wait()
+		until getgenv().ReadyForGuiLoaded
+		Library_Function.Gui.Enabled = true
+	end)
+	
+	Library_Function.NotiGui = Instance.new('ScreenGui')
+	Library_Function.NotiGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	Library_Function.NotiGui.Name = 'CTE HUB Notification'
+	
+	
+	local NotiContainer = Instance.new("Frame")
+	local NotiList = Instance.new("UIListLayout")
+	
+	
+	NotiContainer.Name = "NotiContainer"
+	NotiContainer.Parent = Library_Function.NotiGui
+	NotiContainer.AnchorPoint = Vector2.new(1, 1)
+	NotiContainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	NotiContainer.BackgroundTransparency = 1.000
+	NotiContainer.Position = UDim2.new(1, -5, 1, -5)
+	NotiContainer.Size = UDim2.new(0, 350, 1, -10)
+	
+	NotiList.Name = "NotiList"
+	NotiList.Parent = NotiContainer
+	NotiList.SortOrder = Enum.SortOrder.LayoutOrder
+	NotiList.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	NotiList.Padding = UDim.new(0, 5)
+	
+	
+	Library_Function.Gui.Parent = game:GetService('CoreGui')
+	Library_Function.NotiGui.Parent = game:GetService('CoreGui')
+	
+	
+	
+	function Library_Function.Getcolor(color)
+		return {math.floor(color.r*255),math.floor(color.g*255),math.floor(color.b*255)}
 	end
-	windowFocusChanged(true)
-
-	UI.Enabled = true
-
-	assembleSettings()
-	ensureFrameProperties()
-	sortActions()
-	initialiseAntiKick()
-	checkLastVersion()
-
-	smartBar.Time.Text = os.date("%H")..":"..os.date("%M")
-
-	toggle.Visible = not checkSetting("Hide Toggle Button").current
-
-	if not checkSetting("Load Hidden").current then 
-		if checkSetting("Startup Sound Effect").current then
-			local startupPath = siriusValues.siriusFolder.."/Assets/startup.wav"
-			local startupAsset
-
-			if isfile(startupPath) then
-				startupAsset = getcustomasset(startupPath) or nil
-			else
-				startupAsset = fetchFromCDN("startup.wav", true, "Assets/startup.wav")
-				startupAsset = isfile(startupPath) and getcustomasset(startupPath) or nil
-			end
-
-			if not startupAsset then return end
-
-			local startupSound = Instance.new("Sound")
-			startupSound.Parent = UI
-			startupSound.SoundId = startupAsset
-			startupSound.Name = "startupSound"
-			startupSound.Volume = 0.85
-			startupSound.PlayOnRemove = true
-			startupSound:Destroy()	
-		end
-
-		openSmartBar()
-	else 
-		closeSmartBar() 
-	end
-
-	if script_key and not Essential and not Pro then
-		queueNotification("License Error", "We've detected a key being placed above Sirius loadstring, however your key seems to be invalid. Make a support request at sirius.menu/discord to get this solved within minutes.", "document-minus")
-	end
-
-	if siriusValues.enableExperienceSync then
-		task.spawn(syncExperienceInformation) 
-	end
-end
-
--- Sirius Events
-
-start()
-
-toggle.MouseButton1Click:Connect(function()
-	if smartBarOpen then
-		closeSmartBar()
-	else
-		openSmartBar()
-	end
-end)
-
-characterPanel.Interactions.Reset.MouseButton1Click:Connect(function()
-	resetSliders()
-
-	characterPanel.Interactions.Reset.Rotation = 360
-	queueNotification("Slider Values Reset","Successfully reset all character panel sliders", 4400696294)
-	tweenService:Create(characterPanel.Interactions.Reset, TweenInfo.new(.5,Enum.EasingStyle.Back),  {Rotation = 0}):Play()
-end)
-
-characterPanel.Interactions.Reset.MouseEnter:Connect(function() if debounce then return end tweenService:Create(characterPanel.Interactions.Reset, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {ImageTransparency = 0}):Play() end)
-characterPanel.Interactions.Reset.MouseLeave:Connect(function() if debounce then return end tweenService:Create(characterPanel.Interactions.Reset, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {ImageTransparency = 0.7}):Play() end)
-
-local playerSearch = playerlistPanel.Interactions.SearchFrame.SearchBox -- move this up to Variables once finished
-
-playerSearch:GetPropertyChangedSignal("Text"):Connect(function()
-	local query = string.lower(playerSearch.Text)
-
-	for _, player in ipairs(playerlistPanel.Interactions.List:GetChildren()) do
-		if player.ClassName == "Frame" and player.Name ~= "Placeholder" and player.Name ~= "Template" then
-			if string.find(player.Name, playerSearch.Text) then
-				player.Visible = true
-			else
-				player.Visible = false
-			end
-		end
-	end
-
-	if #playerSearch.Text == 0 then
-		searchingForPlayer = false
-		for _, player in ipairs(playerlistPanel.Interactions.List:GetChildren()) do
-			if player.ClassName == "Frame" and player.Name ~= "Placeholder" and player.Name ~= "Template" then
-				player.Visible = true
-			end
-		end
-	else
-		searchingForPlayer = true
-	end
-end)
-
-characterPanel.Interactions.Serverhop.MouseEnter:Connect(function()
-	if debounce then return end
-	tweenService:Create(characterPanel.Interactions.Serverhop, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0.5}):Play()
-	tweenService:Create(characterPanel.Interactions.Serverhop.Title, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0.1}):Play()
-	tweenService:Create(characterPanel.Interactions.Serverhop.UIStroke, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Transparency = 1}):Play()
-end)
-
-characterPanel.Interactions.Serverhop.MouseLeave:Connect(function()
-	if debounce then return end
-	tweenService:Create(characterPanel.Interactions.Serverhop, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-	tweenService:Create(characterPanel.Interactions.Serverhop.Title, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0.5}):Play()
-	tweenService:Create(characterPanel.Interactions.Serverhop.UIStroke, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Transparency = 0}):Play()
-end)
-
-characterPanel.Interactions.Rejoin.MouseEnter:Connect(function()
-	if debounce then return end
-	tweenService:Create(characterPanel.Interactions.Rejoin, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0.5}):Play()
-	tweenService:Create(characterPanel.Interactions.Rejoin.Title, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0.1}):Play()
-	tweenService:Create(characterPanel.Interactions.Rejoin.UIStroke, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Transparency = 1}):Play()
-end)
-
-characterPanel.Interactions.Rejoin.MouseLeave:Connect(function()
-	if debounce then return end
-	tweenService:Create(characterPanel.Interactions.Rejoin, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-	tweenService:Create(characterPanel.Interactions.Rejoin.Title, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0.5}):Play()
-	tweenService:Create(characterPanel.Interactions.Rejoin.UIStroke, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Transparency = 0}):Play()
-end)
-
-musicPanel.Close.MouseButton1Click:Connect(function()
-	if musicPanel.Visible and not debounce then
-		closeMusic()
-	end
-end)
-
-musicPanel.Add.Interact.MouseButton1Click:Connect(function()
-	musicPanel.AddBox.Input:ReleaseFocus()
-	addToQueue(musicPanel.AddBox.Input.Text)
-end)
-
-musicPanel.Menu.TogglePlaying.MouseButton1Click:Connect(function()
-	if currentAudio then
-		currentAudio.Playing = not currentAudio.Playing
-		musicPanel.Menu.TogglePlaying.ImageRectOffset = currentAudio.Playing and Vector2.new(804, 124) or Vector2.new(764, 244)
-	end
-end)
-
-musicPanel.Menu.Next.MouseButton1Click:Connect(function()
-	if currentAudio then
-		if #musicQueue == 0 then currentAudio.Playing = false currentAudio.SoundId = "" return end
-
-		if musicPanel.Queue.List:FindFirstChild(tostring(musicQueue[1].instanceName)) then
-			musicPanel.Queue.List:FindFirstChild(tostring(musicQueue[1].instanceName)):Destroy()
-		end
+	
+	function Library.CreateNoti(Setting)
+		getgenv().TitleNameNoti = Setting.Title or ""; 
+		local Desc = Setting.Desc; 
+		local Timeshow = Setting.ShowTime or 10;
+	
+		local NotiFrame = Instance.new("Frame")
+		local Noticontainer = Instance.new("Frame")
+		local UICorner = Instance.new("UICorner")
+		local Topnoti = Instance.new("Frame")
+		local Ruafimg = Instance.new("ImageLabel")
+		local RuafimgCorner = Instance.new("UICorner")
+		local TextLabelNoti = Instance.new("TextLabel")
+		local CloseContainer = Instance.new("Frame")
+		local CloseImage = Instance.new("ImageLabel")
+		local TextButton = Instance.new("TextButton")
+		local TextLabelNoti2 = Instance.new("TextLabel")
+	
+		NotiFrame.Name = "NotiFrame"
+		NotiFrame.Parent = NotiContainer
+		NotiFrame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		NotiFrame.BackgroundTransparency = 1.000
+		NotiFrame.ClipsDescendants = true
+		NotiFrame.Position = UDim2.new(0, 0, 0, 0)
+		NotiFrame.Size = UDim2.new(1, 0, 0, 0)
+		NotiFrame.AutomaticSize = Enum.AutomaticSize.Y
+	
+		Noticontainer.Name = "Noticontainer"
+		Noticontainer.Parent = NotiFrame
+		Noticontainer.Position = UDim2.new(1, 0, 0, 0)
+		Noticontainer.Size = UDim2.new(1, 0, 1, 6)
+		Noticontainer.AutomaticSize = Enum.AutomaticSize.Y
+		Noticontainer.BackgroundColor3 = getgenv().UIColor["Background 3 Color"]
+		table.insert(UpdateCallBack["Background 3 Color"],function() 
+			Noticontainer.BackgroundColor3 = getgenv().UIColor["Background 3 Color"]
+		end)
+	
+		UICorner.CornerRadius = UDim.new(0, 4)
+		UICorner.Parent = Noticontainer
+	
+		Topnoti.Name = "Topnoti"
+		Topnoti.Parent = Noticontainer
+		Topnoti.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		Topnoti.BackgroundTransparency = 1.000
+		Topnoti.Position = UDim2.new(0, 0, 0, 5)
+		Topnoti.Size = UDim2.new(1, 0, 0, 25)
+	
+		Ruafimg.Name = "Ruafimg"
+		Ruafimg.Parent = Topnoti
+		Ruafimg.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		Ruafimg.BackgroundTransparency = 1.000
+		Ruafimg.Position = UDim2.new(0, 10, 0, 0)
+		Ruafimg.Size = UDim2.new(0, 25, 0, 25)
+		Ruafimg.Image = getgenv().UIColor["Logo Image"]
+		table.insert(UpdateCallBack["Logo Image"], function() 
+			Ruafimg.Image = Library_Function.GetIMG(getgenv().UIColor["Logo Image"])
+		end)
 		
-		musicPanel.Menu.TogglePlaying.ImageRectOffset = currentAudio.Playing and Vector2.new(804, 124) or Vector2.new(764, 244)
-
-		table.remove(musicQueue, 1)
-
-		playNext()
-	end
-end)
-
-characterPanel.Interactions.Rejoin.Interact.MouseButton1Click:Connect(rejoin)
-characterPanel.Interactions.Serverhop.Interact.MouseButton1Click:Connect(serverhop)
-
-homeContainer.Interactions.Server.JobId.Interact.MouseButton1Click:Connect(function()
-	if setclipboard then 
-		originalSetClipboard([[
--- This script will teleport you to ' ]]..game:GetService("MarketplaceService"):GetProductInfo(placeId).Name..[['
--- If it doesn't work after a few seconds, try going into the same game, and then run the script to join ]]..localPlayer.DisplayName.. [['s specific server
-
-game:GetService("TeleportService"):TeleportToPlaceInstance(']]..placeId..[[', ']]..jobId..[[')]]
-		)
-		queueNotification("Copied Join Script","Successfully set clipboard to join script, players can use this script to join your specific server.", 4335479121)
-	else
-		queueNotification("Unable to copy join script","Missing setclipboard() function, can't set data to your clipboard.", 4335479658)
-	end
-end)
-
-homeContainer.Interactions.Discord.Interact.MouseButton1Click:Connect(function()
-	if setclipboard then 
-		originalSetClipboard("https://sirius.menu/discord")
-		queueNotification("Discord Invite Copied", "We've set your clipboard to the Sirius discord invite.", 4335479121)
-	else
-		queueNotification("Unable to copy Discord invite", "Missing setclipboard() function, can't set data to your clipboard.", 4335479658)
-	end
-end)
-
-for _, button in ipairs(scriptsPanel.Interactions.Selection:GetChildren()) do
-	local origsize = button.Size
-
-	button.MouseEnter:Connect(function()
-		if not debounce then
-			tweenService:Create(button, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-			tweenService:Create(button, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Size = UDim2.new(0, button.Size.X.Offset - 5, 0, button.Size.Y.Offset - 3)}):Play()
-			tweenService:Create(button.UIStroke, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Transparency = 1}):Play()
-			tweenService:Create(button.Title, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0.1}):Play()
-		end
-	end)
-
-	button.MouseLeave:Connect(function()
-		if not debounce then
-			tweenService:Create(button, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-			tweenService:Create(button, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Size = origsize}):Play()
-			tweenService:Create(button.UIStroke, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {Transparency = 0}):Play()
-			tweenService:Create(button.Title, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-		end
-	end)
-
-	button.Interact.MouseButton1Click:Connect(function()
-		tweenService:Create(button, TweenInfo.new(.4,Enum.EasingStyle.Quint),  {Size = UDim2.new(0, origsize.X.Offset - 9, 0, origsize.Y.Offset - 6)}):Play()
-		task.wait(0.1)
-		tweenService:Create(button, TweenInfo.new(.25,Enum.EasingStyle.Quint),  {Size = origsize}):Play()
-
-		if button.Name == "Library" then
-			if not scriptSearch.Visible and not debounce then openScriptSearch() end
-		end
-		-- run action
-	end)
-end
-
-smartBar.Buttons.Music.Interact.MouseButton1Click:Connect(function()
-	if debounce then return end
-	if musicPanel.Visible then closeMusic() else openMusic() end
-end)
-
-smartBar.Buttons.Home.Interact.MouseButton1Click:Connect(function()
-	if debounce then return end
-	if homeContainer.Visible then closeHome() else openHome() end
-end)
-
-smartBar.Buttons.Settings.Interact.MouseButton1Click:Connect(function()
-	if debounce then return end
-	if settingsPanel.Visible then closeSettings() else openSettings() end
-end)
-
-for _, button in ipairs(smartBar.Buttons:GetChildren()) do
-	if UI:FindFirstChild(button.Name) and button:FindFirstChild("Interact") then
-		button.Interact.MouseButton1Click:Connect(function()
-			if isPanel(button.Name) then
-				if not debounce and UI:FindFirstChild(button.Name).Visible then
-					task.spawn(closePanel, button.Name)
-				else
-					task.spawn(openPanel, button.Name)
-				end
-			end
-
-			tweenService:Create(button, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Size = UDim2.new(0,28,0,28)}):Play()
-			tweenService:Create(button, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.6}):Play()
-			tweenService:Create(button.Icon, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 0.6}):Play()
-			task.wait(0.15)
-			tweenService:Create(button, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {Size = UDim2.new(0,36,0,36)}):Play()
-			tweenService:Create(button, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
-			tweenService:Create(button.Icon, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 0.02}):Play()
+	
+		RuafimgCorner.CornerRadius = UDim.new(1, 0)
+		RuafimgCorner.Name = "RuafimgCorner"
+		RuafimgCorner.Parent = Ruafimg
+		
+		local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
+		local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
+		local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
+		local color = colorR .. ',' .. colorG .. ',' .. colorB
+		TextLabelNoti.Text = "<font color=\"rgb(" .. color .. ")\">CTE HUB</font> "..getgenv().TitleNameNoti
+	
+		table.insert(UpdateCallBack["Title Text Color"],function() 
+			local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
+			local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
+			local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
+			local color = colorR .. ',' .. colorG .. ',' .. colorB
+			TextLabelNoti.Text = "<font color=\"rgb(" .. color .. ")\">CTE HUB</font> "..getgenv().TitleNameNoti
 		end)
-
-		button.MouseEnter:Connect(function()
-			tweenService:Create(button.UIGradient, TweenInfo.new(1.4, Enum.EasingStyle.Quint), {Rotation = 360}):Play()
-			tweenService:Create(button.UIStroke.UIGradient, TweenInfo.new(1.4, Enum.EasingStyle.Quint), {Rotation = 360}):Play()
-			tweenService:Create(button.UIStroke, TweenInfo.new(0.8, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-			tweenService:Create(button.Icon, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 0}):Play()
-			tweenService:Create(button.UIGradient, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Offset = Vector2.new(0,-0.5)}):Play()
+		
+		TextLabelNoti.Name = "TextLabelNoti"
+		TextLabelNoti.Parent = Topnoti
+		TextLabelNoti.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		TextLabelNoti.BackgroundTransparency = 1.000
+		TextLabelNoti.Position = UDim2.new(0, 40, 0, 0)
+		TextLabelNoti.Size = UDim2.new(1, -40, 1, 0)
+		TextLabelNoti.Font = Enum.Font.GothamBold
+		TextLabelNoti.TextSize = 14.000
+		TextLabelNoti.TextWrapped = true
+		TextLabelNoti.TextXAlignment = Enum.TextXAlignment.Left
+		TextLabelNoti.RichText = true
+		TextLabelNoti.TextColor3 = getgenv().UIColor["GUI Text Color"]
+		table.insert(UpdateCallBack["GUI Text Color"], function() 
+			TextLabelNoti.TextColor3 = getgenv().UIColor["GUI Text Color"]
 		end)
-
-		button.MouseLeave:Connect(function()
-			tweenService:Create(button.UIStroke.UIGradient, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {Rotation = 50}):Play()
-			tweenService:Create(button.UIGradient, TweenInfo.new(0.9, Enum.EasingStyle.Quint), {Rotation = 50}):Play()
-			tweenService:Create(button.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
-			tweenService:Create(button.Icon, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 0.05}):Play()
-			tweenService:Create(button.UIGradient, TweenInfo.new(0.7, Enum.EasingStyle.Quint), {Offset = Vector2.new(0,0)}):Play()
+	
+		CloseContainer.Name = "CloseContainer"
+		CloseContainer.Parent = Topnoti
+		CloseContainer.AnchorPoint = Vector2.new(1, 0.5)
+		CloseContainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		CloseContainer.BackgroundTransparency = 1.000
+		CloseContainer.Position = UDim2.new(1, -4, 0.5, 0)
+		CloseContainer.Size = UDim2.new(0, 22, 0, 22)
+	
+		CloseImage.Name = "CloseImage"
+		CloseImage.Parent = CloseContainer
+		CloseImage.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		CloseImage.BackgroundTransparency = 1.000
+		CloseImage.Size = UDim2.new(1, 0, 1, 0)
+		CloseImage.Image = "rbxassetid://3926305904"
+		CloseImage.ImageRectOffset = Vector2.new(284, 4)
+		CloseImage.ImageRectSize = Vector2.new(24, 24)
+		CloseImage.ImageColor3 = getgenv().UIColor["Search Icon Color"]
+		table.insert(UpdateCallBack["Search Icon Color"],function() 
+			CloseImage.ImageColor3 = getgenv().UIColor["Search Icon Color"]
 		end)
-	end
-end
-
-userInputService.InputBegan:Connect(function(input, processed)
-	if not checkSirius() then return end
-
-	if checkingForKey then
-		if input.KeyCode ~= Enum.KeyCode.Unknown then
-			local splitMessage = string.split(tostring(input.KeyCode), ".")
-			local newKeyNoEnum = splitMessage[3]
-			checkingForKey.object.InputFrame.InputBox.Text = tostring(newKeyNoEnum)
-			checkingForKey.data.current = tostring(newKeyNoEnum)
-			checkingForKey.object.InputFrame.InputBox:ReleaseFocus()
-			saveSettings()
-		end
-
-		return
-	end
-
-	for _, category in ipairs(siriusSettings) do
-		for _, setting in ipairs(category.categorySettings) do
-			if setting.settingType == "Key" then
-				if setting.current ~= nil and setting.current ~= "" then
-					if input.KeyCode == Enum.KeyCode[setting.current] and not processed then
-						if setting.callback then
-							task.spawn(setting.callback)
-
-							local action = checkAction(setting.name) or nil
-							if action then
-								local object = action.object
-								action = action.action
-
-								if action.enabled then
-									object.Icon.Image = "rbxassetid://"..action.images[1]
-									tweenService:Create(object, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {BackgroundTransparency = 0.1}):Play()
-									tweenService:Create(object.UIStroke, TweenInfo.new(0.6, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-									tweenService:Create(object.Icon, TweenInfo.new(0.45, Enum.EasingStyle.Quint), {ImageTransparency = 0.1}):Play()
-
-									if action.disableAfter then
-										task.delay(action.disableAfter, function()
-											action.enabled = false
-											object.Icon.Image = "rbxassetid://"..action.images[2]
-											tweenService:Create(object, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.55}):Play()
-											tweenService:Create(object.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 0.4}):Play()
-											tweenService:Create(object.Icon, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 0.5}):Play()
-										end)
-									end
-
-									if action.rotateWhileEnabled then
-										repeat
-											object.Icon.Rotation = 0
-											tweenService:Create(object.Icon, TweenInfo.new(0.75, Enum.EasingStyle.Quint), {Rotation = 360}):Play()
-											task.wait(1)
-										until not action.enabled
-										object.Icon.Rotation = 0
-									end
-								else
-									object.Icon.Image = "rbxassetid://"..action.images[2]
-									tweenService:Create(object, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.55}):Play()
-									tweenService:Create(object.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 0.4}):Play()
-									tweenService:Create(object.Icon, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 0.5}):Play()
-								end
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	if input.KeyCode == Enum.KeyCode[checkSetting("Open ScriptSearch").current] and not processed and not debounce then
-		if scriptSearch.Visible then
-			closeScriptSearch()
-		else
-			openScriptSearch()
-		end
-	end
-
-	if input.KeyCode == Enum.KeyCode[checkSetting("Toggle smartBar").current] and not processed and not debounce then
-		if smartBarOpen then 
-			closeSmartBar()
-		else
-			openSmartBar()
-		end
-	end
-end)
-
-userInputService.InputEnded:Connect(function(input, processed)
-	if not checkSirius() then return end
-
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		for _, slider in pairs(siriusValues.sliders) do
-			slider.active = false
-
-			if characterPanel.Visible and not debounce and slider.object and checkSirius() then
-				tweenService:Create(slider.object, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {BackgroundTransparency = 0.8}):Play()
-				tweenService:Create(slider.object.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {Transparency = 0.5}):Play()
-				tweenService:Create(slider.object.Information, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {TextTransparency = 0.3}):Play()
-			end
-		end
-	end
-end)
-
-camera:GetPropertyChangedSignal('ViewportSize'):Connect(function()
-	task.wait(.5)
-	updateSliderPadding()
-end)
-
-scriptSearch.SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-	if #scriptSearch.SearchBox.Text > 0 then
-		tweenService:Create(scriptSearch.Icon, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {ImageColor3 = Color3.fromRGB(255, 255, 255)}):Play()
-		tweenService:Create(scriptSearch.SearchBox, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
-	else
-		tweenService:Create(scriptSearch.Icon, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {ImageColor3 = Color3.fromRGB(150, 150, 150)}):Play()
-		tweenService:Create(scriptSearch.SearchBox, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextColor3 = Color3.fromRGB(150, 150, 150)}):Play()
-	end
-end)
-
-scriptSearch.SearchBox.FocusLost:Connect(function(enterPressed)
-	tweenService:Create(scriptSearch.Icon, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {ImageColor3 = Color3.fromRGB(150, 150, 150)}):Play()
-	tweenService:Create(scriptSearch.SearchBox, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextColor3 = Color3.fromRGB(150, 150, 150)}):Play()
-
-	if #scriptSearch.SearchBox.Text > 0 then
-		if enterPressed then
-			local success, response = pcall(function()
-				searchScriptBlox(scriptSearch.SearchBox.Text)
+	
+		TextButton.Parent = CloseContainer
+		TextButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		TextButton.BackgroundTransparency = 1.000
+		TextButton.Size = UDim2.new(1, 0, 1, 0)
+		TextButton.Font = Enum.Font.SourceSans
+		TextButton.Text = ""
+		TextButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+		TextButton.TextSize = 14.000
+	
+		if Desc then
+			TextLabelNoti2.Name = 'TextColor'
+			TextLabelNoti2.Parent = Noticontainer
+			TextLabelNoti2.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			TextLabelNoti2.BackgroundTransparency = 1.000
+			TextLabelNoti2.Position = UDim2.new(0, 10, 0, 35)
+			TextLabelNoti2.Size = UDim2.new(1, -15, 0, 0)
+			TextLabelNoti2.Font = Enum.Font.GothamBold
+			TextLabelNoti2.Text = Desc
+			TextLabelNoti2.TextSize = 14.000
+			TextLabelNoti2.TextXAlignment = Enum.TextXAlignment.Left
+			TextLabelNoti2.RichText = true
+			TextLabelNoti2.TextColor3 = getgenv().UIColor["Text Color"]
+			TextLabelNoti2.AutomaticSize = Enum.AutomaticSize.Y
+			TextLabelNoti2.TextWrapped = true
+			table.insert(UpdateCallBack["Text Color"],function() 
+				TextLabelNoti2.TextColor3 = getgenv().UIColor["Text Color"]
 			end)
 		end
-	else
-		closeScriptSearch()
-	end
-end)
-
-scriptSearch.SearchBox.Focused:Connect(function()
-	if #scriptSearch.SearchBox.Text > 0 then
-		tweenService:Create(scriptSearch.Icon, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {ImageColor3 = Color3.fromRGB(255, 255, 255)}):Play()
-		tweenService:Create(scriptSearch.SearchBox, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
-	end
-end)
-
-mouse.Move:Connect(function()
-	for _, slider in pairs(siriusValues.sliders) do
-		if slider.active then
-			updateSlider(slider)
+	
+		local function remove()
+			TweenService:Create(Noticontainer,TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{Position = UDim2.new(1,0,0,0)}):Play()
+			wait(.25)
+			NotiFrame:Destroy()
 		end
-	end
-end)
-
-userInputService.WindowFocusReleased:Connect(function() windowFocusChanged(false) end)
-userInputService.WindowFocused:Connect(function() windowFocusChanged(true) end)
-
-for index, player in ipairs(players:GetPlayers()) do
-	createPlayer(player)
-	createEsp(player)
-	player.Chatted:Connect(function(message) onChatted(player, message) end)
-end
-
-players.PlayerAdded:Connect(function(player)
-	if not checkSirius() then return end
-
-	createPlayer(player)
-	createEsp(player)
-
-	player.Chatted:Connect(function(message) onChatted(player, message) end)
-
-	if checkSetting("Log PlayerAdded and PlayerRemoving").current then
-		local logData = {
-			["content"] = player.DisplayName.." (@"..player.Name..") left the server.",
-			["avatar_url"] = "https://www.roblox.com/headshot-thumbnail/image?userId="..player.UserId.."&width=420&height=420&format=png",
-			["username"] = player.DisplayName,
-			["allowed_mentions"] = {parse = {}}
-		}
-
-		logData = httpService:JSONEncode(logData)
-
-		pcall(function()
-			local req = originalRequest({
-				Url = checkSetting("Player Added and Removing Webhook URL").current,
-				Method = 'POST',
-				Headers = {
-					['Content-Type'] = 'application/json',
-				},
-				Body = logData
-			})
+	
+		TweenService:Create(Noticontainer,TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{Position = UDim2.new(0,0,0,0)}):Play()
+	
+		TextButton.MouseEnter:Connect(function()
+			TweenService:Create(CloseImage, TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{ImageColor3 = getgenv().UIColor["Search Icon Highlight Color"]}):Play()
 		end)
-
-	end
-
-	if checkSetting("Moderator Detection").current and Pro then
-		local roleFound = player:GetRoleInGroup(creatorId)
-
-		if siriusValues.currentCreator == "group" then
-			for _, role in pairs(siriusValues.administratorRoles) do 
-				if string.find(string.lower(roleFound), role) then
-					promptModerator(player, roleFound)
-					queueNotification("Administrator Joined", siriusValues.currentGroup .." "..roleFound.." ".. player.DisplayName .." has joined your session", 3944670656) -- change to group name
-				end
-			end
-		end
-	end
-
-	if checkSetting("Friend Notifications").current then
-		if localPlayer:IsFriendsWith(player.UserId) then
-			queueNotification("Friend Joined", "Your friend "..player.DisplayName.." has joined your server.", 4370335364)
-		end
-	end
-end)
-
-players.PlayerRemoving:Connect(function(player)
-	if checkSetting("Log PlayerAdded and PlayerRemoving").current then
-		local logData = {
-			["content"] = player.DisplayName.." (@"..player.Name..") joined the server.",
-			["avatar_url"] = "https://www.roblox.com/headshot-thumbnail/image?userId="..player.UserId.."&width=420&height=420&format=png",
-			["username"] = player.DisplayName,
-			["allowed_mentions"] = {parse = {}}
-		}
-
-		logData = httpService:JSONEncode(logData)
-
-		pcall(function()
-			local req = originalRequest({
-				Url = checkSetting("Player Added and Removing Webhook URL").current,
-				Method = 'POST',
-				Headers = {
-					['Content-Type'] = 'application/json',
-				},
-				Body = logData
-			})
+	
+		TextButton.MouseLeave:Connect(function()
+			TweenService:Create(CloseImage, TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{ImageColor3 = getgenv().UIColor["Search Icon Color"]}):Play()
 		end)
+	
+		TextButton.MouseButton1Click:Connect(function()
+			spawn(function() Library_Function.ButtonEffect() end)
+			wait(.25)
+			remove()
+		end)
+	
+		spawn(function()
+			wait(Timeshow)
+			remove()
+		end)
+	
+	
 	end
-
-	removePlayer(player)
-
-	local highlight = espContainer:FindFirstChild(player.Name)
-	if highlight then
-		highlight:Destroy()
-	end
-end)
-
-runService.RenderStepped:Connect(function(frame)
-	if not checkSirius() then return end
-	local fps = math.round(1/frame)
-
-	table.insert(siriusValues.frameProfile.fpsQueue, fps)
-	siriusValues.frameProfile.totalFPS += fps
-
-	if #siriusValues.frameProfile.fpsQueue > siriusValues.frameProfile.fpsQueueSize then
-		siriusValues.frameProfile.totalFPS -= siriusValues.frameProfile.fpsQueue[1]
-		table.remove(siriusValues.frameProfile.fpsQueue, 1)
-	end
-end)
-
-runService.Stepped:Connect(function()
-	if not checkSirius() then return end
-
-	local character = localPlayer.Character
-	if character then
-		-- No Clip
-		local noclipEnabled = siriusValues.actions[1].enabled
-		local flingEnabled = siriusValues.actions[6].enabled
-
-		for _, part in ipairs(character:GetDescendants()) do
-			if part:IsA("BasePart") then
-				if noclipDefaults[part] == nil then
-					task.wait()
-					noclipDefaults[part] = part.CanCollide
-				else
-					if noclipEnabled or flingEnabled then
-						part.CanCollide = false
-					else
-						part.CanCollide = noclipDefaults[part]
+	
+	function Library.CreateMain(Setting)
+	
+		local TitleNameMain = tostring(Setting.Title) or "CTE HUB"
+		getgenv().MainDesc = Setting.Desc or ""
+	
+		local djtmemay = false
+		cac = false
+	
+		local function makeDraggable(topBarObject, object)
+			local dragging = nil
+			local dragInput = nil
+			local dragStart = nil
+			local startPosition = nil
+			topBarObject.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					dragging = true
+					dragStart = input.Position
+					startPosition = object.Position
+					input.Changed:Connect(function()
+						if input.UserInputState == Enum.UserInputState.End then
+							dragging = false
+						end
+					end)
+				end
+			end)
+			topBarObject.InputChanged:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+					dragInput = input
+				end
+			end)
+			uis.InputChanged:Connect(function(input)
+				if input == dragInput and dragging then
+					local delta = input.Position - dragStart
+					if not djtmemay and cac then
+						TweenService:Create(object, TweenInfo.new(0.35,Enum.EasingStyle.Linear,Enum.EasingDirection.Out), {
+							Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y)
+						}):Play()
+					elseif not djtmemay and not cac then
+						object.Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y)
 					end
 				end
-			end
+			end)
 		end
-	end
-end)
-
-runService.Heartbeat:Connect(function()
-	if not checkSirius() then return end
-
-	local character = localPlayer.Character
-	local primaryPart = character and character.PrimaryPart
-	if primaryPart then
-		local bodyVelocity, bodyGyro = unpack(movers)
-		if not bodyVelocity then
-			bodyVelocity = Instance.new("BodyVelocity")
-			bodyVelocity.MaxForce = Vector3.one * 9e9
-
-			bodyGyro = Instance.new("BodyGyro")
-			bodyGyro.MaxTorque = Vector3.one * 9e9
-			bodyGyro.P = 9e4
-
-			local bodyAngularVelocity = Instance.new("BodyAngularVelocity")
-			bodyAngularVelocity.AngularVelocity = Vector3.yAxis * 9e9
-			bodyAngularVelocity.MaxTorque = Vector3.yAxis * 9e9
-			bodyAngularVelocity.P = 9e9
-
-			movers = { bodyVelocity, bodyGyro, bodyAngularVelocity }
-		end
-
-		-- Fly
-		if siriusValues.actions[2].enabled then
-			local camCFrame = camera.CFrame
-			local velocity = Vector3.zero
-			local rotation = camCFrame.Rotation
-
-			if userInputService:IsKeyDown(Enum.KeyCode.W) then
-				velocity += camCFrame.LookVector
-				rotation *= CFrame.Angles(math.rad(-40), 0, 0)
-			end
-			if userInputService:IsKeyDown(Enum.KeyCode.S) then
-				velocity -= camCFrame.LookVector
-				rotation *= CFrame.Angles(math.rad(40), 0, 0)
-			end
-			if userInputService:IsKeyDown(Enum.KeyCode.D) then
-				velocity += camCFrame.RightVector
-				rotation *= CFrame.Angles(0, 0, math.rad(-40))
-			end
-			if userInputService:IsKeyDown(Enum.KeyCode.A) then
-				velocity -= camCFrame.RightVector
-				rotation *= CFrame.Angles(0, 0, math.rad(40))
-			end
-			if userInputService:IsKeyDown(Enum.KeyCode.Space) then
-				velocity += Vector3.yAxis
-			end
-			if userInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-				velocity -= Vector3.yAxis
-			end
-
-			local tweenInfo = TweenInfo.new(0.5)
-			tweenService:Create(bodyVelocity, tweenInfo, { Velocity = velocity * siriusValues.sliders[3].value * 45 }):Play()
-			bodyVelocity.Parent = primaryPart
-
-			if not siriusValues.actions[6].enabled then
-				tweenService:Create(bodyGyro, tweenInfo, { CFrame = rotation }):Play()
-				bodyGyro.Parent = primaryPart
-			end
-		else
-			bodyVelocity.Parent = nil
-			bodyGyro.Parent = nil
-		end
-	end
-end)
-
-runService.Heartbeat:Connect(function(frame)
-	if not checkSirius() then return end
-	if Pro then
-		if checkSetting("Spatial Shield").current and tonumber(checkSetting("Spatial Shield Threshold").current) then
-			for index, sound in next, soundInstances do
-				if not sound then
-					table.remove(soundInstances, index)
-				elseif gameSettings.MasterVolume * sound.PlaybackLoudness * sound.Volume >= tonumber(checkSetting("Spatial Shield Threshold").current) then
-					if sound.Volume > 0.55 then 
-						suppressedSounds[sound.SoundId] = "S"
-						sound.Volume = 0.5 	
-					elseif sound.Volume > 0.2 and sound.Volume < 0.55 then
-						suppressedSounds[sound.SoundId] = "S2"
-						sound.Volume = 0.1
-					elseif sound.Volume < 0.2 then
-						suppressedSounds[sound.SoundId] = "Mute"
-						sound.Volume = 0
-					end
-					if soundSuppressionNotificationCooldown == 0 then
-						queueNotification("Spatial Shield","A high-volume audio is being played ("..sound.Name..") and it has been suppressed.", 4483362458) 
-						soundSuppressionNotificationCooldown = 15
-					end
-					table.remove(soundInstances, index)
-				end
-			end
-		end
-	end
-
-	if checkSetting("Anonymous Client").current then
-		for _, text in ipairs(cachedText) do
-			local lowerText = string.lower(text.Text)
-			if string.find(lowerText, lowerName, 1, true) or string.find(lowerText, lowerDisplayName, 1, true) then
-
-				storeOriginalText(text)
-
-				local newText = string.gsub(string.gsub(lowerText, lowerName, randomUsername), lowerDisplayName, randomUsername)
-				text.Text = string.gsub(newText, "^%l", string.upper)
-			end
-		end
-	else
-		undoAnonymousChanges()
-	end
-end)
-
-for _, instance in next, game:GetDescendants() do
-	if instance:IsA("Sound") then
-		if suppressedSounds[instance.SoundId] then
-			if suppressedSounds[instance.SoundId] == "S" then
-				instance.Volume = 0.5
-			elseif suppressedSounds[instance.SoundId] == "S2" then
-				instance.Volume = 0.1
-			else
-				instance.Volume = 0
-			end
-		else
-			if not table.find(cachedIds, instance.SoundId) then
-				table.insert(soundInstances, instance)
-				table.insert(cachedIds, instance.SoundId)
-			end
-		end
-	elseif instance:IsA("TextLabel") or instance:IsA("TextButton") then
-		if not table.find(cachedText, instance) then
-			table.insert(cachedText, instance)
-		end
-	end
-end
-
-game.DescendantAdded:Connect(function(instance)
-	if checkSirius() then
-		if instance:IsA("Sound") then
-			if suppressedSounds[instance.SoundId] then
-				if suppressedSounds[instance.SoundId] == "S" then
-					instance.Volume = 0.5
-				elseif suppressedSounds[instance.SoundId] == "S2" then
-					instance.Volume = 0.1
-				else
-					instance.Volume = 0
+	
+		local Main = Instance.new("Frame")
+		local maingui = Instance.new("ImageLabel")
+		local MainCorner = Instance.new("UICorner")
+		local TopMain = Instance.new("Frame")
+		local Ruafimg = Instance.new("ImageLabel")
+		local TextLabelMain = Instance.new("TextLabel")
+		local PageControl = Instance.new("Frame")
+		local UICorner = Instance.new("UICorner")
+		local ControlList = Instance.new("ScrollingFrame")
+		local UIListLayout = Instance.new("UIListLayout")
+		local ControlTitle = Instance.new("TextLabel")
+		local MainPage = Instance.new("Frame")
+		local UIPage = Instance.new("UIPageLayout")
+		local SettionMain = Instance.new("Frame")
+		local SettionButton = Instance.new("TextButton")
+		local SettingIcon = Instance.new("ImageLabel")
+		local Concacontainer = Instance.new("Frame")
+		local Concacmain = Instance.new("Frame")
+		local Concacmain1 = Instance.new("Frame")
+		local Concacpage = Instance.new("UIPageLayout")
+	
+		local MainContainer
+	
+		Main.Name = "Main"
+		Main.Parent = Library_Function.Gui
+		Main.BackgroundColor3 = Color3.fromRGB(42, 42, 42)
+		Main.BackgroundTransparency = 1.000
+		Main.Position = UDim2.new(0.5, 0, 0.5, 0)
+		Main.AnchorPoint = Vector2.new(0.5, 0.5)
+		Main.Size = UDim2.new(0, 629, 0, 359)
+	
+		makeDraggable(Main, Main)
+	
+		maingui.Name = "maingui"
+		maingui.Parent = Main
+		maingui.AnchorPoint = Vector2.new(0.5, 0.5)
+		maingui.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		maingui.BackgroundTransparency = 1.000
+		maingui.Position = UDim2.new(0.5, 0, 0.5, 0)
+		maingui.Selectable = true
+		maingui.Size = UDim2.new(1, 30, 1, 30)
+		maingui.Image = "rbxassetid://8068653048"
+		maingui.ScaleType = Enum.ScaleType.Slice
+		maingui.SliceCenter = Rect.new(15, 15, 175, 175)
+		maingui.SliceScale = 1.300
+		maingui.ImageColor3 = getgenv().UIColor["Border Color"]
+		table.insert(UpdateCallBack["Border Color"],function() 
+			maingui.ImageColor3 = getgenv().UIColor["Border Color"]
+		end)
+	
+		function Library_Function.ReloadMain(v)
+			maingui.ImageColor3 = getgenv().UIColor['Title Text Color']
+			local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
+			local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
+			local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
+			local color = colorR .. ',' .. colorG .. ',' .. colorB
+			TextLabelMain.Text = "<font color=\"rgb("..color..")\">CTE HUB</font> " .. getgenv().MainDesc
+			table.insert(UpdateCallBack["Title Text Color"],function() 
+				maingui.ImageColor3 = getgenv().UIColor['Title Text Color']
+				local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
+				local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
+				local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
+				local color = colorR .. ',' .. colorG .. ',' .. colorB
+				TextLabelMain.Text = "<font color=\"rgb("..color..")\">CTE HUB</font> " .. getgenv().MainDesc
+			end)
+			local MainContainer_
+			if v ~= ""
+			and type(v) == 'string'
+			and string.find(v:lower(), ".webm")
+			and pcall(function() writefile("seahub.webm", http_request({Url=v}).Body) end) then
+				wait(.25)
+				local sus = isfile("seahub.webm")
+				wait(.25)
+				if sus then
+					MainContainer_ = Instance.new("VideoFrame")  
+					MainContainer_.Name = "MainContainer"
+					MainContainer_.Parent = Main
+					MainContainer_.BackgroundColor3 = Color3.fromRGB(53, 53, 53)
+					MainContainer_.Size = UDim2.new(1, 0, 1, 0)
+					MainContainer_.Video = getsynasset("seahub.webm")
+					MainContainer_.Looped = true
+					MainContainer_:Play()
+					wait(.5)
+					delfile('seahub.webm')
 				end
 			else
-				if not table.find(cachedIds, instance.SoundId) then
-					table.insert(soundInstances, instance)
-					table.insert(cachedIds, instance.SoundId)
-				end
+				MainContainer_ = Instance.new("ImageLabel")
+				MainContainer_.Name = "MainContainer"
+				MainContainer_.Parent = Main
+				MainContainer_.BackgroundColor3 = Color3.fromRGB(53, 53, 53)
+				MainContainer_.Size = UDim2.new(1, 0, 1, 0)
+				MainContainer_.Image = Library_Function.GetIMG(v)
 			end
-		elseif instance:IsA("TextLabel") or instance:IsA("TextButton") then
-			if not table.find(cachedText, instance) then
-				table.insert(cachedText, instance)
-			end
-		end
-	end
-end)
-
-
-while task.wait(1) do
-	if not checkSirius() then
-		if espContainer then espContainer:Destroy() end
-		undoAnonymousChanges()
-		break
-	end
-
-	smartBar.Time.Text = os.date("%H")..":"..os.date("%M")
-	task.spawn(UpdateHome)
-
-	for _, connection in getconnections(localPlayer.Idled) do
-		if not checkSetting("Anti Idle").current then connection:Enable() else connection:Disable() end
-	end
-
-	toggle.Visible = not checkSetting("Hide Toggle Button").current
-
-	-- Disconnected Check
-	local disconnectedRobloxUI = coreGui.RobloxPromptGui.promptOverlay:FindFirstChild("ErrorPrompt")
-
-	if disconnectedRobloxUI and not promptedDisconnected then
-		local reasonPrompt = disconnectedRobloxUI.MessageArea.ErrorFrame.ErrorMessage.Text
-
-		promptedDisconnected = true
-		disconnectedPrompt.Parent = coreGui.RobloxPromptGui
-
-		local disconnectType
-		local foundString
-
-		for _, preDisconnectType in ipairs(siriusValues.disconnectTypes) do
-			for _, typeString in pairs(preDisconnectType[2]) do
-				if string.find(reasonPrompt, typeString) then
-					disconnectType = preDisconnectType[1]
-					foundString = true
+			MainCorner_ = Instance.new("UICorner")
+			MainCorner_.CornerRadius = UDim.new(0, 4)
+			MainCorner_.Name = "MainCorner"
+			MainCorner_.Parent = MainContainer_
+			for i,e in next, Main:GetChildren() do 
+				if e.Name == "MainContainer" then
+					for i,v in next, e:GetChildren() do
+						v.Parent = MainContainer_
+					end
+					wait()
+					e:Destroy()
 					break
 				end
 			end
+			table.insert(UpdateCallBack["Background 3 Color"],function() 
+				MainContainer_.BackgroundColor3 = getgenv().UIColor["Background 3 Color"]
+			end)
 		end
-
-		if not foundString then disconnectType = "kick" end
-
-		wipeTransparency(disconnectedPrompt, 1, true)
-		disconnectedPrompt.Visible = true
-
-		if disconnectType == "ban" then
-			disconnectedPrompt.Content.Text = "You've been banned, would you like to leave this server?"
-			disconnectedPrompt.Action.Text = "Leave"
-			disconnectedPrompt.Action.Size = UDim2.new(0, 77, 0, 36) -- use textbounds
-
-			disconnectedPrompt.UIGradient.Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, Color3.new(0,0,0)),
-				ColorSequenceKeypoint.new(1, Color3.new(0.819608, 0.164706, 0.164706))
-			})
-		elseif disconnectType == "kick" then
-			disconnectedPrompt.Content.Text = "You've been kicked, would you like to serverhop?"
-			disconnectedPrompt.Action.Text = "Serverhop"
-			disconnectedPrompt.Action.Size = UDim2.new(0, 114, 0, 36)
-
-			disconnectedPrompt.UIGradient.Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, Color3.new(0,0,0)),
-				ColorSequenceKeypoint.new(1, Color3.new(0.0862745, 0.596078, 0.835294))
-			})
-		elseif disconnectType == "network" then
-			disconnectedPrompt.Content.Text = "You've lost connection, would you like to rejoin?"
-			disconnectedPrompt.Action.Text = "Rejoin"
-			disconnectedPrompt.Action.Size = UDim2.new(0, 82, 0, 36)
-
-			disconnectedPrompt.UIGradient.Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, Color3.new(0,0,0)),
-				ColorSequenceKeypoint.new(1, Color3.new(0.862745, 0.501961, 0.0862745))
-			})
-		end
-
-		tweenService:Create(disconnectedPrompt, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0}):Play()
-		tweenService:Create(disconnectedPrompt.Title, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-		tweenService:Create(disconnectedPrompt.Content, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0.3}):Play()
-		tweenService:Create(disconnectedPrompt.Action, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {BackgroundTransparency = 0.7}):Play()
-		tweenService:Create(disconnectedPrompt.Action, TweenInfo.new(.5,Enum.EasingStyle.Quint),  {TextTransparency = 0}):Play()
-
-		disconnectedPrompt.Action.MouseButton1Click:Connect(function()
-			if disconnectType == "ban" then
-				game:Shutdown() -- leave
-			elseif disconnectType == "kick" then
-				serverhop()
-			elseif disconnectType == "network" then
-				rejoin()
-			end
+	
+		maingui.ImageColor3 = getgenv().UIColor['Title Text Color']
+		local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
+		local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
+		local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
+		local color = colorR .. ',' .. colorG .. ',' .. colorB
+		TextLabelMain.Text = "<font color=\"rgb("..color..")\">CTE HUB</font> " .. getgenv().MainDesc
+		table.insert(UpdateCallBack["Title Text Color"],function() 
+			maingui.ImageColor3 = getgenv().UIColor['Title Text Color']
+			local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
+			local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
+			local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
+			local color = colorR .. ',' .. colorG .. ',' .. colorB
+			TextLabelMain.Text = "<font color=\"rgb("..color..")\">CTE HUB</font> " .. getgenv().MainDesc
 		end)
-	end
-
-	if Pro then
-		-- all Pro checks here!
-
-		-- Two-Way Adaptive Latency Checks
-		if checkHighPing() then
-			if siriusValues.pingProfile.pingNotificationCooldown <= 0 then
-				if checkSetting("Adaptive Latency Warning").current then
-					queueNotification("High Latency Warning","We've noticed your latency has reached a higher value than usual, you may find that you are lagging or your actions are delayed in-game. Consider checking for any background downloads on your machine.", 4370305588)
-					siriusValues.pingProfile.pingNotificationCooldown = 120
-				end
+		local MainContainer
+		local defurl = getgenv().UIColor["Background Image"]
+		if defurl ~= ""
+		and type(defurl) == 'string'
+		and string.find(defurl:lower(), ".webm")
+		and pcall(function() writefile("seahub.webm", http_request({Url=defurl}).Body) end) then
+			wait(.25)
+			local sus = isfile("seahub.webm")
+			wait(.25)
+			if sus then
+				MainContainer = Instance.new("VideoFrame")  
+				MainContainer.Name = "MainContainer"
+				MainContainer.Parent = Main
+				MainContainer.BackgroundColor3 = Color3.fromRGB(53, 53, 53)
+				MainContainer.Size = UDim2.new(1, 0, 1, 0)
+				MainContainer.Video = getsynasset("seahub.webm")
+				MainContainer.Looped = true
+				MainContainer:Play()
+				wait(.5)
+				delfile('seahub.webm')
 			end
+		else
+			MainContainer = Instance.new("ImageLabel")
+			MainContainer.Name = "MainContainer"
+			MainContainer.Parent = Main
+			MainContainer.BackgroundColor3 = Color3.fromRGB(53, 53, 53)
+			MainContainer.Size = UDim2.new(1, 0, 1, 0)
+			MainContainer.Image = Library_Function.GetIMG(defurl)
 		end
-
-		if siriusValues.pingProfile.pingNotificationCooldown > 0 then
-			siriusValues.pingProfile.pingNotificationCooldown -= 1
-		end
-
-		-- Adaptive frame time checks
-		if siriusValues.frameProfile.frameNotificationCooldown <= 0 then
-			if #siriusValues.frameProfile.fpsQueue > 0 then
-				local avgFPS = siriusValues.frameProfile.totalFPS / #siriusValues.frameProfile.fpsQueue
-
-				if avgFPS < siriusValues.frameProfile.lowFPSThreshold then
-					if checkSetting("Adaptive Performance Warning").current then
-						queueNotification("Degraded Performance","We've noticed your client's frames per second have decreased. Consider checking for any background tasks or programs on your machine.", 4384400106)
-						siriusValues.frameProfile.frameNotificationCooldown = 120	
+		table.insert(UpdateCallBack["Background 3 Color"],function() 
+			MainContainer.BackgroundColor3 = getgenv().UIColor["Background 3 Color"]
+		end)
+		getgenv().ReadyForGuiLoaded = true
+		
+		MainCorner.CornerRadius = UDim.new(0, 4)
+		MainCorner.Name = "MainCorner"
+		MainCorner.Parent = MainContainer
+	
+		Concacontainer.Name = "Concacontainer"
+		Concacontainer.Parent = MainContainer
+		Concacontainer.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		Concacontainer.BackgroundTransparency = 1.000
+		Concacontainer.ClipsDescendants = true
+		Concacontainer.Position = UDim2.new(0, 0, 0, 30)
+		Concacontainer.Size = UDim2.new(1, 0, 1, -30)
+		
+		Concacmain.Name = "Concacmain"
+		Concacmain.Parent = Concacontainer
+		Concacmain.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		Concacmain.BackgroundTransparency = 1.000
+		Concacmain.Selectable = true
+		Concacmain.Size = UDim2.new(1, 0, 1, 0)
+		
+		Concacmain1.Name = "Background1"
+		Concacmain1.Parent = Concacontainer
+		Concacmain1.LayoutOrder = 1
+		Concacmain1.Selectable = true
+		Concacmain1.Size = UDim2.new(1, 0, 1, 0)
+		Concacmain1.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+		table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+			Concacmain1.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+		end)
+		Concacmain1.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+		table.insert(UpdateCallBack["Background 1 Color"],function() 
+			Concacmain1.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+		end)
+		
+		Concacpage.Name = "Concacpage"
+		Concacpage.Parent = Concacontainer
+		Concacpage.SortOrder = Enum.SortOrder.LayoutOrder
+		Concacpage.EasingDirection = Enum.EasingDirection.InOut
+		Concacpage.EasingStyle = Enum.EasingStyle.Quad
+		Concacpage.TweenTime = getgenv().UIColor["Tween Animation 1 Speed"]
+		table.insert(UpdateCallBack["Tween Animation 1 Speed"], function() 
+			Concacpage.TweenTime = getgenv().UIColor["Tween Animation 1 Speed"]
+		end)
+		
+		TopMain.Name = "TopMain"
+		TopMain.Parent = MainContainer
+		TopMain.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		TopMain.BackgroundTransparency = 1.000
+		TopMain.Size = UDim2.new(1, 0, 0, 25)
+		
+		Ruafimg.Name = "Ruafimg"
+		Ruafimg.Parent = TopMain
+		Ruafimg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		Ruafimg.BackgroundTransparency = 1.000
+		Ruafimg.Position = UDim2.new(0, 5, 0, 0)
+		Ruafimg.Size = UDim2.new(0, 25, 0, 25)
+		Ruafimg.Image = getgenv().UIColor["Logo Image"]
+		table.insert(UpdateCallBack["Logo Image"],function() 
+			Ruafimg.Image = getgenv().UIColor["Logo Image"]
+		end)
+		
+		TextLabelMain.Name = "TextLabelMain"
+		TextLabelMain.Parent = TopMain
+		TextLabelMain.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		TextLabelMain.BackgroundTransparency = 1.000
+		TextLabelMain.Position = UDim2.new(0, 35, 0, 0)
+		TextLabelMain.Size = UDim2.new(1, -35, 1, 0)
+		TextLabelMain.Font = Enum.Font.GothamBold
+		TextLabelMain.RichText = true
+		TextLabelMain.TextSize = 16.000
+		TextLabelMain.TextWrapped = true
+		TextLabelMain.TextXAlignment = Enum.TextXAlignment.Left
+		TextLabelMain.TextColor3 = getgenv().UIColor["GUI Text Color"]
+		table.insert(UpdateCallBack["GUI Text Color"],function() 
+			TextLabelMain.TextColor3 = getgenv().UIColor["GUI Text Color"]
+		end)
+		local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
+		local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
+		local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
+		local color = colorR .. ',' .. colorG .. ',' .. colorB
+		TextLabelMain.Text = "<font color=\"rgb("..color..")\">CTE HUB</font> " .. getgenv().MainDesc
+		table.insert(UpdateCallBack["Title Text Color"],function() 
+			local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
+			local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
+			local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
+			local color = colorR .. ',' .. colorG .. ',' .. colorB
+			TextLabelMain.Text = "<font color=\"rgb("..color..")\">CTE HUB</font> " .. getgenv().MainDesc
+		end)
+		
+		SettionMain.Name = "SettionMain"
+		SettionMain.Parent = TopMain
+		SettionMain.AnchorPoint = Vector2.new(1, 0)
+		SettionMain.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		SettionMain.BackgroundTransparency = 1.000
+		SettionMain.Position = UDim2.new(1, 0, 0, 0)
+		SettionMain.Size = UDim2.new(0, 30, 0, 30)
+		
+		SettionButton.Name = "SettionButton"
+		SettionButton.Parent = SettionMain
+		SettionButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		SettionButton.BackgroundTransparency = 1.000
+		SettionButton.BorderColor3 = Color3.fromRGB(27, 42, 53)
+		SettionButton.Size = UDim2.new(1, 0, 1, 0)
+		SettionButton.Font = Enum.Font.SourceSans
+		SettionButton.Text = ""
+		SettionButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+		SettionButton.TextSize = 14.000
+		SettionButton.Visible = true
+		
+		SettingIcon.Name = "SettingIcon"
+		SettingIcon.Parent = SettionMain
+		SettingIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+		SettingIcon.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		SettingIcon.BackgroundTransparency = 1.000
+		SettingIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+		SettingIcon.Size = UDim2.new(1, -10, 1, -10)
+		SettingIcon.Image = "rbxassetid://7397332215"
+		SettingIcon.Visible = true
+		SettingIcon.ImageColor3 = getgenv().UIColor["Setting Icon Color"]
+		table.insert(UpdateCallBack["Setting Icon Color"],function() 
+			SettingIcon.ImageColor3 = getgenv().UIColor["Setting Icon Color"]
+		end)
+	
+		PageControl.Name = "Background1"
+		PageControl.Parent = Concacmain
+		PageControl.Position = UDim2.new(0, 5, 0, 0)
+		PageControl.Size = UDim2.new(0, 180, 0, 325)
+		PageControl.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+		table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+			PageControl.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+		end)
+		PageControl.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+		table.insert(UpdateCallBack["Background 1 Color"],function() 
+			PageControl.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+		end)
+	
+		UICorner.CornerRadius = UDim.new(0, 4)
+		UICorner.Parent = PageControl
+	
+		ControlList.Name = "ControlList"
+		ControlList.Parent = PageControl
+		ControlList.Active = true
+		ControlList.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		ControlList.BackgroundTransparency = 1.000
+		ControlList.BorderColor3 = Color3.fromRGB(27, 42, 53)
+		ControlList.BorderSizePixel = 0
+		ControlList.Position = UDim2.new(0, 0, 0, 30)
+		ControlList.Size = UDim2.new(1, -5, 1, -30)
+		ControlList.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+		ControlList.CanvasSize = UDim2.new(0, 0, 0, 0)
+		ControlList.ScrollBarThickness = 5
+		ControlList.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+	
+		UIListLayout.Parent = ControlList
+		UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		UIListLayout.Padding = UDim.new(0, 5)
+	
+		ControlTitle.Name = "GUITextColor"
+		ControlTitle.Parent = PageControl
+		ControlTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		ControlTitle.BackgroundTransparency = 1.000
+		ControlTitle.Position = UDim2.new(0, 5, 0, 0)
+		ControlTitle.Size = UDim2.new(1, 0, 0, 25)
+		ControlTitle.Font = Enum.Font.GothamBold
+		ControlTitle.Text = TitleNameMain
+		ControlTitle.TextSize = 14.000
+		ControlTitle.TextXAlignment = Enum.TextXAlignment.Left
+		ControlTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+		table.insert(UpdateCallBack["GUI Text Color"], function() 
+			ControlTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+		end)
+	
+		MainPage.Name = "MainPage"
+		MainPage.Parent = Concacmain
+		MainPage.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		MainPage.BackgroundTransparency = 1.000
+		MainPage.ClipsDescendants = true
+		MainPage.Position = UDim2.new(0, 190, 0, 0)
+		MainPage.Size = UDim2.new(0, 435, 0, 325)
+	
+		UIPage.Name = "UIPage"
+		UIPage.Parent = MainPage
+		UIPage.FillDirection = Enum.FillDirection.Vertical
+		UIPage.SortOrder = Enum.SortOrder.LayoutOrder
+		UIPage.EasingDirection = Enum.EasingDirection.InOut
+		UIPage.EasingStyle = Enum.EasingStyle.Quart
+		UIPage.Padding = UDim.new(0, 10)
+		UIPage.TweenTime = getgenv().UIColor["Tween Animation 1 Speed"]
+		table.insert(UpdateCallBack["Tween Animation 1 Speed"], function() 
+			UIPage.TweenTime = getgenv().UIColor["Tween Animation 1 Speed"]
+		end)
+	
+		UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			ControlList.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 5)
+		end)
+	
+	
+		local cummm = false 
+	
+		SettionButton.MouseButton1Click:Connect(function() Library_Function.ButtonEffect() end)
+	
+		SettionButton.MouseButton1Click:Connect(function()
+			cummm = not cummm
+			pa = cummm and 1 or 0 
+			ro = cummm and 180 or 0 
+			Concacpage:JumpToIndex(pa)
+			game.TweenService:Create(SettingIcon,TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{Rotation = ro}):Play()
+		end)
+	
+		local CustomList = Instance.new("ScrollingFrame")
+		local CustomListLayout = Instance.new("UIListLayout")
+	
+	
+		CustomList.Name = "CustomList"
+		CustomList.Parent = Concacmain1
+		CustomList.Active = true
+		CustomList.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		CustomList.BackgroundTransparency = 1.000
+		CustomList.BorderColor3 = Color3.fromRGB(27, 42, 53)
+		CustomList.BorderSizePixel = 0
+		CustomList.Position = UDim2.new(0, 5, 0, 30)
+		CustomList.Size = UDim2.new(1, -10, 1, -30)
+		CustomList.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+		CustomList.ScrollBarThickness = 5
+		CustomList.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+	
+		CustomListLayout.Name = "CustomListLayout"
+		CustomListLayout.Parent = CustomList
+		CustomListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		CustomListLayout.Padding = UDim.new(0, 5)
+	
+		CustomListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			CustomList.CanvasSize = UDim2.new(0, 0, 0, CustomListLayout.AbsoluteContentSize.Y + 5)
+		end)
+	
+		local CustomTitle = Instance.new("TextLabel")
+	
+		CustomTitle.Name = "GUITextColor"
+		CustomTitle.Parent = Concacmain1
+		CustomTitle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		CustomTitle.BackgroundTransparency = 1.000
+		CustomTitle.Position = UDim2.new(0, 15, 0, 0)
+		CustomTitle.Size = UDim2.new(1, -15, 0, 25)
+		CustomTitle.Font = Enum.Font.GothamBold
+		CustomTitle.Text = ''
+		CustomTitle.TextSize = 16.000
+		CustomTitle.TextXAlignment = Enum.TextXAlignment.Left
+		CustomTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+		table.insert(UpdateCallBack["GUI Text Color"],function() 
+			CustomTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+		end)
+	
+		local CustomSearch = Instance.new("Frame")
+		local PageSearchCorner = Instance.new("UICorner")
+		local SearchFrame = Instance.new("Frame")
+		local SearchIcon = Instance.new("ImageLabel")
+		local active = Instance.new("TextButton")
+		local SearchBucu = Instance.new("TextBox")
+	
+		CustomSearch.Name = "Background2"
+		CustomSearch.Parent = Concacmain1
+		CustomSearch.AnchorPoint = Vector2.new(1, 0)
+		CustomSearch.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+		CustomSearch.ClipsDescendants = true
+		CustomSearch.Position = UDim2.new(1, -5, 0, 5)
+		CustomSearch.Size = UDim2.new(0, 20, 0, 20)
+		CustomSearch.ClipsDescendants = true
+		table.insert(UpdateCallBack["Background 2 Color"],function() 
+			CustomSearch.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+		end)
+	
+		PageSearchCorner.CornerRadius = UDim.new(0, 2)
+		PageSearchCorner.Name = "PageSearchCorner"
+		PageSearchCorner.Parent = CustomSearch
+	
+		SearchFrame.Name = "SearchFrame"
+		SearchFrame.Parent = CustomSearch
+		SearchFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		SearchFrame.BackgroundTransparency = 1.000
+		SearchFrame.Size = UDim2.new(0, 20, 0, 20)
+	
+		SearchIcon.Name = "SearchIcon"
+		SearchIcon.Parent = SearchFrame
+		SearchIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+		SearchIcon.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		SearchIcon.BackgroundTransparency = 1.000
+		SearchIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+		SearchIcon.Size = UDim2.new(0, 16, 0, 16)
+		SearchIcon.Image = "rbxassetid://8154282545"
+		SearchIcon.ImageColor3 = getgenv().UIColor["Search Icon Color"]
+		table.insert(UpdateCallBack["Search Icon Color"],function() 
+			SearchIcon.ImageColor3 = getgenv().UIColor["Search Icon Color"]
+		end)
+	
+		active.Name = "active"
+		active.Parent = SearchFrame
+		active.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		active.BackgroundTransparency = 1.000
+		active.Size = UDim2.new(1, 0, 1, 0)
+		active.Font = Enum.Font.SourceSans
+		active.Text = ""
+		active.TextColor3 = Color3.fromRGB(0, 0, 0)
+		active.TextSize = 14.000
+	
+		SearchBucu.Name = "TextColorPlaceholder"
+		SearchBucu.Parent = CustomSearch
+		SearchBucu.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		SearchBucu.BackgroundTransparency = 1.000
+		SearchBucu.Position = UDim2.new(0, 30, 0, 0)
+		SearchBucu.Size = UDim2.new(1, -30, 1, 0)
+		SearchBucu.Font = Enum.Font.GothamBold
+		SearchBucu.Text = ''
+		SearchBucu.TextSize = 14.000
+		SearchBucu.TextXAlignment = Enum.TextXAlignment.Left
+		SearchBucu.PlaceholderText =  "Search Section name"
+		SearchBucu.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+		SearchBucu.TextColor3 = getgenv().UIColor["Text Color"]
+		table.insert(UpdateCallBack["Placeholder Text Color"],function() 
+			SearchBucu.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+		end)
+		table.insert(UpdateCallBack["Text Color"],function() 
+			SearchBucu.TextColor3 = getgenv().UIColor["Text Color"]
+		end)
+	
+		local cummmed_ = false 
+	
+			active.MouseEnter:Connect(function()
+				TweenService:Create(SearchIcon,TweenInfo.new(getgenv().UIColor["Tween Animation 3 Speed"]),{ImageColor3 = getgenv().UIColor["Search Icon Highlight Color"]}):Play()
+			end)
+	
+			active.MouseLeave:Connect(function()
+				TweenService:Create(SearchIcon,TweenInfo.new(getgenv().UIColor["Tween Animation 3 Speed"]),{ImageColor3 = getgenv().UIColor["Search Icon Color"]}):Play()
+			end)
+	
+			active.MouseButton1Click:Connect(function()
+				Library_Function.ButtonEffect()
+			end)
+	
+			SearchBucu.Focused:Connect(function()
+				Library_Function.ButtonEffect()
+			end)
+	
+			active.MouseButton1Click:Connect(function()
+				cummmed_ = not cummmed_
+				local size = cummmed_ and UDim2.new(0,175,0,20) or  UDim2.new(0,20,0,20)
+				game.TweenService:Create(CustomSearch,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Size = size}):Play()
+			end)
+	
+			local function succac_()
+				for i,v in next, CustomList:GetChildren() do 
+					if not v:IsA('UIListLayout') then 
+						v.Visible = false
 					end
 				end
 			end
+			
+			local function ra_()
+				for a, b in pairs(CustomList:GetChildren()) do
+					if not b:IsA('UIListLayout') then 
+						if string.find(string.lower(b.Name),string.lower(SearchBucu.Text)) then 
+							b.Visible = true
+						end
+					end
+				end
+			end
+			
+			SearchBucu:GetPropertyChangedSignal("Text"):Connect(function()
+				succac_()
+				ra_()
+			end)
+	
+		function Library.CreateCustomColor(Name)
+	
+			CustomTitle.Text = Name or 'Custom GUI'
+	
+	
+			local Setting_Function = {}
+	
+			function Setting_Function.CreateSection(Section_Name)
+	
+				local Section = Instance.new("Frame")
+				local UICorner = Instance.new("UICorner")
+				local Topsec = Instance.new("Frame")
+				local Sectiontitle = Instance.new("TextLabel")
+				local Linesec = Instance.new("Frame")
+				local UIGradient = Instance.new("UIGradient")
+				local SectionList = Instance.new("UIListLayout")
+				local SectionName = Section_Name or "Section"
+	
+				Section.Name = Section_Name.."Section"
+				Section.Parent = CustomList
+				Section.Size = UDim2.new(1, 0, 0, 285)
+				Section.BackgroundColor3 = getgenv().UIColor["Background 3 Color"]
+				table.insert(UpdateCallBack["Background 3 Color"],function() 
+					Section.BackgroundColor3 = getgenv().UIColor["Background 3 Color"]
+				end)
+				Section.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+					Section.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				end)
+	
+				UICorner.CornerRadius = UDim.new(0, 4)
+				UICorner.Parent = Section
+	
+				Topsec.Name = "Topsec"
+				Topsec.Parent = Section
+				Topsec.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+				Topsec.BackgroundTransparency = 1.000
+				Topsec.Size = UDim2.new(1, 0, 0, 27)
+	
+				Sectiontitle.Name = "Sectiontitle"
+				Sectiontitle.Parent = Topsec
+				Sectiontitle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+				Sectiontitle.BackgroundTransparency = 1.000
+				Sectiontitle.Size = UDim2.new(1, 0, 1, 0)
+				Sectiontitle.Font = Enum.Font.GothamBold
+				Sectiontitle.Text = Section_Name
+				Sectiontitle.TextSize = 14.000
+				Sectiontitle.TextColor3 = getgenv().UIColor["Section Text Color"]
+				table.insert(UpdateCallBack["Section Text Color"],function() 
+					Sectiontitle.TextColor3 = getgenv().UIColor["Section Text Color"]
+				end)
+	
+				Linesec.Name = "Linesec"
+				Linesec.Parent = Topsec
+				Linesec.AnchorPoint = Vector2.new(0.5, 1)
+				Linesec.BorderSizePixel = 0
+				Linesec.Position = UDim2.new(0.5, 0, 1, -2)
+				Linesec.Size = UDim2.new(1, -10, 0, 2)
+				Linesec.BackgroundColor3 = getgenv().UIColor["Section Underline Color"]
+				table.insert(UpdateCallBack["Section Underline Color"],function() 
+					Linesec.BackgroundColor3 = getgenv().UIColor["Section Underline Color"]
+				end)
+	
+				UIGradient.Transparency = NumberSequence.new{NumberSequenceKeypoint.new(0.00, 1.00), NumberSequenceKeypoint.new(0.50, 0.00), NumberSequenceKeypoint.new(0.51, 0.02), NumberSequenceKeypoint.new(1.00, 1.00)}
+				UIGradient.Parent = Linesec
+	
+				SectionList.Name = "SectionList"
+				SectionList.Parent = Section
+				SectionList.SortOrder = Enum.SortOrder.LayoutOrder
+				SectionList.Padding = UDim.new(0, 5)
+	
+				SectionList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+					Section.Size = UDim2.new(1, 0, 0, SectionList.AbsoluteContentSize.Y + 5)
+				end)
+	
+				local Setting_Section_Function = {}
+	
+					function Setting_Section_Function.CreateColorPicker(Setting)
+						local _G=setmetatable({},{
+							__index=function(Self,Key) 
+								if Key=="Cungroi" then 
+									return SettingsRac[Setting.Type].Rainbow
+								end
+							end,
+							__newindex=function(Self,Key,Value) 
+								if Key=="Cungroi" then 
+									SettingsRac[Setting.Type].Rainbow=Value
+								end
+							end
+						})
+						local H,S,V
+						local Title = Setting.Title or "Color Picker"
+						local Default = SettingsRac[Setting.Type].Color or Color3.fromRGB(255, 255, 255)
+						local Type = Setting.Type
+						local ColorPick = Instance.new("Frame")
+						local ColorPickCorner = Instance.new("UICorner")
+						local ColorPickBg = Instance.new("Frame")
+						local ColorpickBGCorner = Instance.new("UICorner")
+						local ColorpickTitle = Instance.new("TextLabel")
+						local ColorVal = Instance.new("Frame")
+						local ColorValCorner = Instance.new("UICorner")
+						local ColorValButton = Instance.new("TextButton")
+						local Hue = Instance.new("Frame")
+						local HueGra = Instance.new("UIGradient")
+						local Frame = Instance.new("Frame")
+						local UICorner = Instance.new("UICorner")
+						local Concac = Instance.new("Frame")
+						local RFrame = Instance.new("Frame")
+						local RText = Instance.new("TextLabel")
+						local RBox = Instance.new("TextBox")
+						local GFrame = Instance.new("Frame")
+						local GText = Instance.new("TextLabel")
+						local GBox = Instance.new("TextBox")
+						local BFrame = Instance.new("Frame")
+						local BText = Instance.new("TextLabel")
+						local BBox = Instance.new("TextBox")
+						local UIListLayout = Instance.new("UIListLayout")
+						local HexFrame = Instance.new("Frame")
+						local HexText = Instance.new("TextLabel")
+						local HexBox = Instance.new("TextBox")
+						local Linesec = Instance.new("Frame")
+						local UIGradient = Instance.new("UIGradient")
+						local CungroiF = Instance.new("Frame")
+						local CungroiFF = Instance.new("Frame")
+						local cungroitext = Instance.new("TextLabel")
+						local checkbox = Instance.new("ImageLabel")
+						local check = Instance.new("ImageLabel")
+						local Cungroitog = Instance.new("TextButton")
+						local Color = Instance.new("ImageLabel")
+						local SelectorColor = Instance.new("Frame")
+						local UICorner_2 = Instance.new("UICorner")
+						local HoithoF = Instance.new("Frame")
+						local HoithoF_2 = Instance.new("Frame")
+						local hoithotext = Instance.new("TextLabel")
+						local checkbox_2 = Instance.new("ImageLabel")
+						local check_2 = Instance.new("ImageLabel")
+						local Hoithoitog = Instance.new("TextButton")
+						local Frame_2 = Instance.new("Frame")
+						local UIListLayout_2 = Instance.new("UIListLayout")
+						local Cor1 = Instance.new("Frame")
+						local UICorner_3 = Instance.new("UICorner")
+						local BCor1 = Instance.new("TextButton")
+						local Cor2 = Instance.new("Frame")
+						local UICorner_4 = Instance.new("UICorner")
+						local BCor2 = Instance.new("TextButton")
+	
+						ColorPick.Name = "ColorPick"
+						ColorPick.Parent = Section
+						ColorPick.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+						ColorPick.BackgroundTransparency = 1.000
+						ColorPick.ClipsDescendants = true
+						ColorPick.Position = UDim2.new(0, 0, 0.112280704, 0)
+						ColorPick.Size = UDim2.new(1, 0, 0, 35)
+	
+						ColorPickCorner.CornerRadius = UDim.new(0, 4)
+						ColorPickCorner.Name = "ColorPickCorner"
+						ColorPickCorner.Parent = ColorPick
+	
+						ColorPickBg.Name = "Background1"
+						ColorPickBg.Parent = ColorPick
+						ColorPickBg.AnchorPoint = Vector2.new(0.5, 0.5)
+						ColorPickBg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+						ColorPickBg.Position = UDim2.new(0.5, 0, 0.5, 0)
+						ColorPickBg.Size = UDim2.new(1, -10, 1, 0)
+						table.insert(UpdateCallBack["Background 1 Color"],function() 
+							ColorPickBg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+						end)
+						ColorPickBg.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+						table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+							ColorPickBg.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+						end)
+	
+						ColorpickBGCorner.CornerRadius = UDim.new(0, 4)
+						ColorpickBGCorner.Name = "ColorpickBGCorner"
+						ColorpickBGCorner.Parent = ColorPickBg
+	
+						ColorpickTitle.Name = "TextColor"
+						ColorpickTitle.Parent = ColorPickBg
+						ColorpickTitle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						ColorpickTitle.BackgroundTransparency = 1.000
+						ColorpickTitle.Position = UDim2.new(0, 10, 0, 0)
+						ColorpickTitle.Size = UDim2.new(1, -10, 0, 35)
+						ColorpickTitle.Font = Enum.Font.GothamBlack
+						ColorpickTitle.Text = Title
+						ColorpickTitle.TextSize = 14.000
+						ColorpickTitle.TextXAlignment = Enum.TextXAlignment.Left
+						ColorpickTitle.TextColor3 = getgenv().UIColor["Text Color"]
+						table.insert(UpdateCallBack["Text Color"],function() 
+							ColorpickTitle.TextColor3 = getgenv().UIColor["Text Color"]
+						end)
+	
+						ColorVal.Name = "ColorVal"
+						ColorVal.Parent = ColorPick
+						ColorVal.AnchorPoint = Vector2.new(1, 0)
+						ColorVal.BackgroundColor3 = SettingsRac[Type].Color
+						ColorVal.Position = UDim2.new(1, -10, 0, 5)
+						ColorVal.Size = UDim2.new(0, 150, 0, 25)
+	
+						ColorValCorner.CornerRadius = UDim.new(0, 4)
+						ColorValCorner.Name = "ColorValCorner"
+						ColorValCorner.Parent = ColorVal
+	
+						ColorValButton.Name = "ColorValButton"
+						ColorValButton.Parent = ColorVal
+						ColorValButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						ColorValButton.BackgroundTransparency = 1.000
+						ColorValButton.Size = UDim2.new(1, 0, 1, 0)
+						ColorValButton.Font = Enum.Font.SourceSans
+						ColorValButton.Text = ""
+						ColorValButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+						ColorValButton.TextSize = 14.000
+	
+						Hue.Name = "Hue"
+						Hue.Parent = ColorPick
+						Hue.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						Hue.BorderSizePixel = 0
+						Hue.Position = UDim2.new(0, 460, 0, 40)
+						Hue.Size = UDim2.new(0, 25, 0, 200)
+	
+						HueGra.Color = ColorSequence.new{ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 0, 4)), ColorSequenceKeypoint.new(0.17, Color3.fromRGB(235, 7, 255)), ColorSequenceKeypoint.new(0.33, Color3.fromRGB(0, 9, 189)), ColorSequenceKeypoint.new(0.49, Color3.fromRGB(0, 193, 196)), ColorSequenceKeypoint.new(0.66, Color3.fromRGB(0, 255, 0)), ColorSequenceKeypoint.new(0.84, Color3.fromRGB(255, 247, 0)), ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 0, 0))}
+						HueGra.Rotation = 90
+						HueGra.Name = "HueGra"
+						HueGra.Parent = Hue
+	
+						Frame.Parent = Hue
+						Frame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						Frame.Position = UDim2.new(0, 0, 1, 0)
+						Frame.Size = UDim2.new(1, 0, 0, 2)
+	
+						UICorner.CornerRadius = UDim.new(0, 4)
+						UICorner.Parent = Hue
+	
+						Concac.Name = "Concac"
+						Concac.Parent = ColorPick
+						Concac.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						Concac.BackgroundTransparency = 1.000
+						Concac.Position = UDim2.new(0, 495, 0, 40)
+						Concac.Size = UDim2.new(0, 115, 0, 100)
+	
+						RFrame.Name = "RFrame"
+						RFrame.Parent = Concac
+						RFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						RFrame.BackgroundTransparency = 1.000
+						RFrame.Size = UDim2.new(1, 0, 0, 25)
+						RFrame.LayoutOrder = 0
+	
+						RText.Name = "RText"
+						RText.Parent = RFrame
+						RText.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						RText.BackgroundTransparency = 1.000
+						RText.Size = UDim2.new(0, 25, 0, 25)
+						RText.Font = Enum.Font.GothamBold
+						RText.Text = "R:"
+						RText.TextColor3 = Color3.fromRGB(115, 115, 115)
+						RText.TextSize = 14.000
+						RText.TextXAlignment = Enum.TextXAlignment.Left
+	
+						RBox.Name = "RBox"
+						RBox.Parent = RFrame
+						RBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						RBox.BackgroundTransparency = 1.000
+						RBox.Position = UDim2.new(0, 25, 0, 0)
+						RBox.Size = UDim2.new(1, -25, 1, 0)
+						RBox.ClearTextOnFocus = false
+						RBox.Font = Enum.Font.GothamBold
+						RBox.Text = "255"
+						RBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+						RBox.TextSize = 14.000
+						RBox.TextXAlignment = Enum.TextXAlignment.Left
+	
+						GFrame.Name = "GFrame"
+						GFrame.Parent = Concac
+						GFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						GFrame.BackgroundTransparency = 1.000
+						GFrame.Size = UDim2.new(1, 0, 0, 25)
+						GFrame.LayoutOrder = 1
+	
+						GText.Name = "GText"
+						GText.Parent = GFrame
+						GText.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						GText.BackgroundTransparency = 1.000
+						GText.Size = UDim2.new(0, 25, 0, 25)
+						GText.Font = Enum.Font.GothamBold
+						GText.Text = "G:"
+						GText.TextColor3 = Color3.fromRGB(115, 115, 115)
+						GText.TextSize = 14.000
+						GText.TextXAlignment = Enum.TextXAlignment.Left
+	
+						GBox.Name = "GBox"
+						GBox.Parent = GFrame
+						GBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						GBox.BackgroundTransparency = 1.000
+						GBox.Position = UDim2.new(0, 25, 0, 0)
+						GBox.Size = UDim2.new(1, -25, 1, 0)
+						GBox.ClearTextOnFocus = false
+						GBox.Font = Enum.Font.GothamBold
+						GBox.Text = "255"
+						GBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+						GBox.TextSize = 14.000
+						GBox.TextXAlignment = Enum.TextXAlignment.Left
+	
+						BFrame.Name = "BFrame"
+						BFrame.Parent = Concac
+						BFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						BFrame.BackgroundTransparency = 1.000
+						BFrame.Size = UDim2.new(1, 0, 0, 25)
+						BFrame.LayoutOrder = 2
+	
+						BText.Name = "BText"
+						BText.Parent = BFrame
+						BText.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						BText.BackgroundTransparency = 1.000
+						BText.Size = UDim2.new(0, 25, 0, 25)
+						BText.Font = Enum.Font.GothamBold
+						BText.Text = "B:"
+						BText.TextColor3 = Color3.fromRGB(115, 115, 115)
+						BText.TextSize = 14.000
+						BText.TextXAlignment = Enum.TextXAlignment.Left
+	
+						BBox.Name = "BBox"
+						BBox.Parent = BFrame
+						BBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						BBox.BackgroundTransparency = 1.000
+						BBox.Position = UDim2.new(0, 25, 0, 0)
+						BBox.Size = UDim2.new(1, -25, 1, 0)
+						BBox.ClearTextOnFocus = false
+						BBox.Font = Enum.Font.GothamBold
+						BBox.Text = "255"
+						BBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+						BBox.TextSize = 14.000
+						BBox.TextXAlignment = Enum.TextXAlignment.Left
+	
+						UIListLayout.Parent = Concac
+						UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	
+						HexFrame.Name = "HexFrame"
+						HexFrame.Parent = Concac
+						HexFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						HexFrame.BackgroundTransparency = 1.000
+						HexFrame.Size = UDim2.new(1, 0, 0, 25)
+						HexFrame.LayoutOrder = 3
+	
+						HexText.Name = "HexText"
+						HexText.Parent = HexFrame
+						HexText.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						HexText.BackgroundTransparency = 1.000
+						HexText.Size = UDim2.new(0, 25, 0, 25)
+						HexText.Font = Enum.Font.GothamBold
+						HexText.Text = "#"
+						HexText.TextColor3 = Color3.fromRGB(115, 115, 115)
+						HexText.TextSize = 14.000
+						HexText.TextXAlignment = Enum.TextXAlignment.Left
+	
+						HexBox.Name = "HexBox"
+						HexBox.Parent = HexFrame
+						HexBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						HexBox.BackgroundTransparency = 1.000
+						HexBox.Position = UDim2.new(0, 25, 0, 0)
+						HexBox.Size = UDim2.new(1, -25, 1, 0)
+						HexBox.ClearTextOnFocus = false
+						HexBox.Font = Enum.Font.GothamBold
+						HexBox.Text = "FFFFFF"
+						HexBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+						HexBox.TextSize = 14.000
+						HexBox.TextXAlignment = Enum.TextXAlignment.Left
+	
+						Linesec.Name = "Linesec"
+						Linesec.Parent = Concac
+						Linesec.AnchorPoint = Vector2.new(0.5, 1)
+						Linesec.BorderSizePixel = 0
+						Linesec.Position = UDim2.new(0.5, 0, 1, -2)
+						Linesec.Size = UDim2.new(1, -10, 0, 2)
+						Linesec.LayoutOrder = 4
+						Linesec.BackgroundColor3 = getgenv().UIColor["Section Underline Color"]
+						table.insert(UpdateCallBack["Section Underline Color"],function() 
+							Linesec.BackgroundColor3 = getgenv().UIColor["Section Underline Color"]
+						end)
+	
+						UIGradient.Transparency = NumberSequence.new{NumberSequenceKeypoint.new(0.00, 1.00), NumberSequenceKeypoint.new(0.30, 0.25), NumberSequenceKeypoint.new(0.70, 0.25), NumberSequenceKeypoint.new(1.00, 1.00)}
+						UIGradient.Parent = Linesec
+	
+						CungroiF.Name = "CungroiF"
+						CungroiF.Parent = ColorPick
+						CungroiF.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						CungroiF.BackgroundTransparency = 1.000
+						CungroiF.Position = UDim2.new(0, 495, 0, 145)
+						CungroiF.Size = UDim2.new(0, 115, 0, 25)
+	
+						CungroiFF.Name = "CungroiFF"
+						CungroiFF.Parent = CungroiF
+						CungroiFF.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						CungroiFF.BackgroundTransparency = 1.000
+						CungroiFF.Size = UDim2.new(1, 0, 0, 25)
+						CungroiFF.LayoutOrder = 4
+	
+						cungroitext.Name = "TextColor"
+						cungroitext.Parent = CungroiFF
+						cungroitext.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						cungroitext.BackgroundTransparency = 1.000
+						cungroitext.Size = UDim2.new(0, 85, 0, 25)
+						cungroitext.Font = Enum.Font.GothamBold
+						cungroitext.Text = "Rainbow"
+						cungroitext.TextSize = 14.000
+						cungroitext.TextXAlignment = Enum.TextXAlignment.Left
+						cungroitext.TextColor3 = getgenv().UIColor["Text Color"]
+						table.insert(UpdateCallBack["Text Color"],function() 
+							cungroitext.TextColor3 = getgenv().UIColor["Text Color"]
+						end)
+	
+						checkbox.Name = "Setting_checkbox"
+						checkbox.Parent = CungroiFF
+						checkbox.AnchorPoint = Vector2.new(1, 0.5)
+						checkbox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						checkbox.BackgroundTransparency = 1.000
+						checkbox.Position = UDim2.new(1, -5, 0.5, 0)
+						checkbox.Size = UDim2.new(0, 25, 0, 25)
+						checkbox.Image = "rbxassetid://4552505888"
+						checkbox.ImageColor3 = getgenv().UIColor["Toggle Border Color"]
+						table.insert(UpdateCallBack["Toggle Border Color"],function() 
+							checkbox.ImageColor3 = getgenv().UIColor["Toggle Border Color"]
+						end)
+	
+						check.Name = "Setting_check"
+						check.Parent = checkbox
+						check.AnchorPoint = Vector2.new(0, 1)
+						check.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						check.BackgroundTransparency = 1.000
+						check.Position = UDim2.new(0, 0, 1, 0)
+						check.Image = "rbxassetid://4555411759"
+						check.ImageColor3 = getgenv().UIColor["Toggle Checked Color"]
+						table.insert(UpdateCallBack["Toggle Checked Color"],function() 
+							check.ImageColor3 = getgenv().UIColor["Toggle Checked Color"]
+						end)
+	
+						Cungroitog.Name = "Cungroitog"
+						Cungroitog.Parent = CungroiFF
+						Cungroitog.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						Cungroitog.BackgroundTransparency = 1.000
+						Cungroitog.Size = UDim2.new(1, 0, 1, 0)
+						Cungroitog.Font = Enum.Font.SourceSans
+						Cungroitog.Text = ""
+						Cungroitog.TextColor3 = Color3.fromRGB(0, 0, 0)
+						Cungroitog.TextSize = 14.000
+						
+						Color.Name = "Color"
+						Color.Parent = ColorPick
+						Color.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+						Color.BorderSizePixel = 0
+						Color.Position = UDim2.new(0, 10, 0, 40)
+						Color.Size = UDim2.new(0, 440, 0, 200)
+						Color.Image = "rbxassetid://4155801252"
+	
+						SelectorColor.Name = "SelectorColor"
+						SelectorColor.Parent = Color
+						SelectorColor.AnchorPoint = Vector2.new(0.5, 0.5)
+						SelectorColor.BackgroundColor3 = Color3.fromRGB(203, 203, 203)
+						SelectorColor.BorderColor3 = Color3.fromRGB(70, 70, 70)
+						SelectorColor.Position = UDim2.new(1, 0, 0, 0)
+						SelectorColor.Size = UDim2.new(0, 4, 0, 4)
+	
+						UICorner_2.CornerRadius = UDim.new(0, 4)
+						UICorner_2.Parent = Color
+	
+						HoithoF.Name = "HoithoF"
+						HoithoF.Parent = ColorPick
+						HoithoF.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						HoithoF.BackgroundTransparency = 1.000
+						HoithoF.Position = UDim2.new(0, 495, 0, 175)
+						HoithoF.Size = UDim2.new(0, 115, 0, 25)
+						HoithoF.LayoutOrder = 5
+	
+						HoithoF_2.Name = "HoithoF"
+						HoithoF_2.Parent = HoithoF
+						HoithoF_2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						HoithoF_2.BackgroundTransparency = 1.000
+						HoithoF_2.Size = UDim2.new(1, 0, 1, 25)
+	
+						hoithotext.Name = "TextColor"
+						hoithotext.Parent = HoithoF_2
+						hoithotext.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						hoithotext.BackgroundTransparency = 1.000
+						hoithotext.Size = UDim2.new(0, 85, 0, 25)
+						hoithotext.Font = Enum.Font.GothamBold
+						hoithotext.Text = "Breathing"
+						hoithotext.TextSize = 14.000
+						hoithotext.TextXAlignment = Enum.TextXAlignment.Left
+						hoithotext.TextColor3 = getgenv().UIColor["Text Color"]
+						table.insert(UpdateCallBack["Text Color"],function() 
+							hoithotext.TextColor3 = getgenv().UIColor["Text Color"]
+						end)
+	
+						checkbox_2.Name = "setting_checkbox"
+						checkbox_2.Parent = HoithoF_2
+						checkbox_2.AnchorPoint = Vector2.new(1, 0)
+						checkbox_2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						checkbox_2.BackgroundTransparency = 1.000
+						checkbox_2.Position = UDim2.new(1, -5, 0, 0)
+						checkbox_2.Size = UDim2.new(0, 25, 0, 25)
+						checkbox_2.Image = "rbxassetid://4552505888"
+						checkbox_2.ImageColor3 = Color3.fromRGB(131, 181, 255)
+						checkbox_2.ImageColor3 = getgenv().UIColor["Toggle Border Color"]
+						table.insert(UpdateCallBack["Toggle Border Color"],function() 
+							checkbox_2.ImageColor3 = getgenv().UIColor["Toggle Border Color"]
+						end)
+	
+						check_2.Name = "setting_check"
+						check_2.Parent = checkbox_2
+						check_2.AnchorPoint = Vector2.new(0, 1)
+						check_2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						check_2.BackgroundTransparency = 1.000
+						check_2.Position = UDim2.new(0, 0, 1, 0)
+						check_2.Image = "rbxassetid://4555411759"
+						check_2.ImageColor3 = getgenv().UIColor["Toggle Checked Color"]
+						table.insert(UpdateCallBack["Toggle Checked Color"],function() 
+							check_2.ImageColor3 = getgenv().UIColor["Toggle Checked Color"]
+						end)
+	
+						Hoithoitog.Name = "Hoithoitog"
+						Hoithoitog.Parent = HoithoF_2
+						Hoithoitog.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						Hoithoitog.BackgroundTransparency = 1.000
+						Hoithoitog.Size = UDim2.new(1, 0, 0, 25)
+						Hoithoitog.Font = Enum.Font.SourceSans
+						Hoithoitog.Text = ""
+						Hoithoitog.TextColor3 = Color3.fromRGB(0, 0, 0)
+						Hoithoitog.TextSize = 14.000
+	
+						Frame_2.Parent = HoithoF_2
+						Frame_2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						Frame_2.BackgroundTransparency = 1.000
+						Frame_2.Position = UDim2.new(0, 0, 0, 30)
+						Frame_2.Size = UDim2.new(1, 0, 0, 25)
+	
+						UIListLayout_2.Parent = Frame_2
+						UIListLayout_2.FillDirection = Enum.FillDirection.Horizontal
+						UIListLayout_2.SortOrder = Enum.SortOrder.LayoutOrder
+						UIListLayout_2.Padding = UDim.new(0, 5)
+	
+						Cor1.Name = "Cor1"
+						Cor1.Parent = Frame_2
+						Cor1.BackgroundColor3 =SettingsRac[Type].Breathing.Color1
+						Cor1.Selectable = true
+						Cor1.Size = UDim2.new(0, 25, 0, 25)
+	
+						UICorner_3.CornerRadius = UDim.new(1, 0)
+						UICorner_3.Parent = Cor1
+	
+						BCor1.Name = "BCor1"
+						BCor1.Parent = Cor1
+						BCor1.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						BCor1.BackgroundTransparency = 1.000
+						BCor1.Size = UDim2.new(1, 0, 1, 0)
+						BCor1.Font = Enum.Font.SourceSans
+						BCor1.Text = ""
+						BCor1.TextColor3 = Color3.fromRGB(0, 0, 0)
+						BCor1.TextSize = 14.000
+	
+						Cor2.Name = "Cor2"
+						Cor2.Parent = Frame_2
+						Cor2.BackgroundColor3 = SettingsRac[Type].Breathing.Color2
+						Cor2.Selectable = true
+						Cor2.Size = UDim2.new(0, 25, 0, 25)
+	
+						UICorner_4.CornerRadius = UDim.new(1, 0)
+						UICorner_4.Parent = Cor2
+	
+						BCor2.Name = "BCor2"
+						BCor2.Parent = Cor2
+						BCor2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						BCor2.BackgroundTransparency = 1.000
+						BCor2.Size = UDim2.new(1, 0, 1, 0)
+						BCor2.Font = Enum.Font.SourceSans
+						BCor2.Text = ""
+						BCor2.TextColor3 = Color3.fromRGB(0, 0, 0)
+						BCor2.TextSize = 14.000
+	
+						local vandogbucu = false
+						ColorValButton.MouseButton1Click:Connect(function()
+							vandogbucu = not vandogbucu
+							local CSize = vandogbucu and UDim2.new(1, 0, 0, 255) or UDim2.new(1, 0, 0, 35)
+							TweenService:Create(ColorPick, TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]), {Size = CSize}):Play()
+						end)
+	
+						ColorValButton.MouseButton1Click:Connect(function()
+							Library_Function.ButtonEffect()
+						end)
+	
+						local userInputService = game:GetService("UserInputService")
+						local runService = game:GetService("RunService")
+	
+						local plr = game.Players.LocalPlayer
+						local mouse = plr:GetMouse()
+	
+						local colorInput, hueInput = nil,nil
+						local nguvail = true
+						local cungroival = 0
+						local function cum(...)
+							if nguvail then
+								return wait(...)
+							else
+								wait()
+								return false
+							end
+						end
+	
+						local function RBGToText(color)
+							return {math.floor(color.r*255),math.floor(color.g*255),math.floor(color.b*255)}
+						end
+	
+						local function Color3FromHex(hex)
+							hex = hex:gsub("#", ""):upper():gsub("0X", "")
+							return Color3.fromRGB(tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16))
+						end
+						local function Color3ToHex(color)
+							local r, g, b = string.format("%X", math.floor(color.R * 255)), string.format("%X", math.floor(color.G * 255)), string.format("%X", math.floor(color.B * 255))
+							if #r < 2 then
+								r = "0" .. r
+							end
+							if #g < 2 then
+								g = "0" .. g
+							end
+							if #b < 2 then
+								b = "0" .. b
+							end
+							return string.format("%s%s%s", r, g, b)
+						end
+						H, S, V = 1,1,1
+						local function LayCaiLonHon(a,b) 
+							if a>b then return a,b else return b,a end
+						end
+						local function Cong(a,b) 
+							if (a+b)>255 then 
+								local lon,be = LayCaiLonHon(a,b)
+								local delta = 255-lon
+								local lon2,be2 = LayCaiLonHon(delta,be)
+	
+								return (lon2-be2)
+							else
+								return (a+b)
+							end
+						end
+						function CongColor(a,b) 
+							local Color1,Color2=a,b
+							local SQRT = math.sqrt
+							local NewColor={}
+							NewColor.R = 255 - SQRT(((255-Color1.R)^2 + (255-Color2.R)^2)/2)
+							NewColor.G = 255 - SQRT(((255-Color1.G)^2 + (255-Color2.G)^2)/2)
+							NewColor.B = 255 - SQRT(((255-Color1.B)^2 + (255-Color2.B)^2)/2)
+							return Color3.new(NewColor.R,NewColor.G,NewColor.B)
+						end
+						local function UpdateColor(concac)
+							local NewColor = concac or Color3.fromHSV(H, S, V)
+							if not NewColor then S, H, V = concac:ToHSV() end
+							HexBox.Text = Color3ToHex(NewColor)
+							Color.BackgroundColor3 = Color3.fromHSV(H, 1, 1)
+							if concac then
+								Color.BackgroundColor3 = concac
+								SelectorColor.Position = UDim2.new(concac and select(3, Color3.toHSV(concac)))
+							end
+							local pos = 1 - (Color3.toHSV(NewColor))
+							local scaley = Hue.Frame.Position.Y.Scale
+							if scaley ~= pos and not ((pos == 0 or pos == 1) and (scaley == 1 or scaley == 0)) then
+								Hue.Frame.Position = UDim2.fromScale(0,pos)
+							end
+							RBox.Text, GBox.Text, BBox.Text = RBGToText(NewColor)[1],RBGToText(NewColor)[2],RBGToText(NewColor)[3]
+							ColorVal.BackgroundColor3 = NewColor
+							local Types = {}
+							getgenv().UIColor[Type] = NewColor
+						end
+						UpdateColor(SettingsRac[Type].Color)
+						local function setcungroi(stage)
+							if colorInput then
+								colorInput = (colorInput:Disconnect() and nil) or nil
+							end
+							if hueInput then
+								hueInput = (hueInput:Disconnect() and nil) or nil
+							end
+							
+							if stage then 
+								pcall(function()
+									local kietthongminh = 1 / 255
+									while cum() and _G.Cungroi do
+										cungroival = kietthongminh + cungroival
+										if cungroival > 1 then
+											cungroival = 0
+										end
+										H = cungroival
+										UpdateColor(Color3.fromHSV(cungroival, 1, 1))
+									end
+								end)
+							end
+							
+						end
+						local csize = _G.Cungroi and UDim2.new(1,-4,1,-4) or UDim2.new(0,0,0,0)
+						local  pos = _G.Cungroi and UDim2.new(.5,0,.5,0) or UDim2.new(0,0,1,0)
+						local apos = _G.Cungroi and Vector2.new(.5,.5) or Vector2.new(0,1)
+						check.Size=csize
+						check.Position=pos
+						check.AnchorPoint = apos
+						spawn(function() 
+							setcungroi(_G.Cungroi)
+						end)
+						
+						
+	
+						Cungroitog.MouseButton1Click:Connect(function() Library_Function.ButtonEffect() end)
+	
+						Cungroitog.MouseButton1Click:Connect(function()
+							_G.Cungroi = not _G.Cungroi
+							csize = _G.Cungroi and UDim2.new(1,-4,1,-4) or UDim2.new(0,0,0,0)
+							pos = _G.Cungroi and UDim2.new(.5,0,.5,0) or UDim2.new(0,0,1,0)
+							apos = _G.Cungroi and Vector2.new(.5,.5) or Vector2.new(0,1)
+							game.TweenService:Create(check,TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{Size = csize, Position = pos, AnchorPoint = apos}):Play()
+							setcungroi(_G.Cungroi)
+						end)
+	
+						HexBox.FocusLost:Connect(function()
+							if #HexBox.Text > 5 then
+								local occho, rac = pcall(Color3FromHex, HexBox.Text)
+								UpdateColor((occho and rac))
+							end
+						end)
+	
+						RBox.FocusLost:Connect(function()
+							if tonumber(RBox.Text) > 255 then 
+								RBox.Text = 255
+							elseif tonumber(RBox.Text) < 0 then
+								RBox.Text = 0
+							end
+							local occho, rac = pcall(Color3.fromRGB, tonumber(RBox.Text),tonumber(BBox.Text),tonumber(GBox.Text))
+							UpdateColor((occho and rac))
+						end)
+	
+						GBox.FocusLost:Connect(function()
+							if tonumber(GBox.Text) > 255 then 
+								GBox.Text = 255
+							elseif tonumber(GBox.Text) < 0 then
+								GBox.Text = 0
+							end
+							local occho, rac = pcall(Color3.fromRGB, tonumber(RBox.Text),tonumber(BBox.Text),tonumber(GBox.Text))
+							UpdateColor((occho and rac))
+						end)
+						BBox.FocusLost:Connect(function()
+							if tonumber(BBox.Text) > 255 then 
+								BBox.Text = 255
+							elseif tonumber(BBox.Text) < 0 then
+								BBox.Text = 0
+							end
+							local occho, rac = pcall(Color3.fromRGB, tonumber(RBox.Text),tonumber(BBox.Text),tonumber(GBox.Text))
+							UpdateColor((occho and rac))
+						end)
+	
+						H = 1 - (math.clamp(Hue.Frame.AbsolutePosition.Y - Hue.AbsolutePosition.Y, 0, Hue.AbsoluteSize.Y) / Hue.AbsoluteSize.Y)
+						S = (math.clamp(Color.SelectorColor.AbsolutePosition.X - Color.AbsolutePosition.X, 0, Color.AbsoluteSize.X) / Color.AbsoluteSize.X)
+						V = 1 - (math.clamp(Color.SelectorColor.AbsolutePosition.Y - Color.AbsolutePosition.Y, 0, Color.AbsoluteSize.Y) / Color.AbsoluteSize.Y)
+	
+						Color.InputBegan:Connect(function(input)
+							if input.UserInputType == Enum.UserInputType.MouseButton1 then
+								if colorInput then
+									colorInput:Disconnect()
+								end
+								djtmemay = true
+								colorInput = runService.RenderStepped:Connect(function()
+									local colorX = (math.clamp(mouse.X - Color.AbsolutePosition.X, 0, Color.AbsoluteSize.X) / Color.AbsoluteSize.X)
+									local colorY = (math.clamp(mouse.Y - Color.AbsolutePosition.Y, 0, Color.AbsoluteSize.Y) / Color.AbsoluteSize.Y)
+									SelectorColor.Position = UDim2.fromScale(colorX, colorY)
+									S = colorX
+									V = 1 - colorY
+									UpdateColor()
+								end)
+							end
+						end)
+	
+						Color.InputEnded:Connect(function(input)
+							if input.UserInputType == Enum.UserInputType.MouseButton1 then
+								if colorInput then
+									djtmemay = false
+									colorInput:Disconnect()
+								end
+							end
+						end)
+	
+						Hue.InputBegan:Connect(function(input)
+							if input.UserInputType == Enum.UserInputType.MouseButton1 then
+								if hueInput then
+									hueInput:Disconnect()
+								end
+								djtmemay = true
+								hueInput = runService.RenderStepped:Connect(function()
+									local hueY = math.clamp(mouse.Y - Hue.AbsolutePosition.Y, 0, Hue.AbsoluteSize.Y) / Hue.AbsoluteSize.Y
+									Hue.Frame.Position = UDim2.fromScale(0,hueY)
+									H = 1 - hueY
+									UpdateColor()
+								end)
+							end
+						end)
+	
+						Hue.InputEnded:Connect(function(input)
+							if input.UserInputType == Enum.UserInputType.MouseButton1 then
+								if hueInput then
+									djtmemay = false
+									hueInput:Disconnect()
+								end
+							end
+						end)
+	
+						BCor1.MouseButton1Click:Connect(function()
+							Library_Function.ButtonEffect()
+						end)
+	
+						BCor2.MouseButton1Click:Connect(function()
+							Library_Function.ButtonEffect()
+						end)
+	
+						BCor1.MouseButton1Click:Connect(function()
+							Cor1.BackgroundColor3 = ColorVal.BackgroundColor3
+							SettingsRac[Type].Breathing.Color1=ColorVal.BackgroundColor3
+						end)
+	
+						BCor2.MouseButton1Click:Connect(function()
+							Cor2.BackgroundColor3 = ColorVal.BackgroundColor3
+							SettingsRac[Type].Breathing.Color2=ColorVal.BackgroundColor3
+						end)
+					   
+						Hoithoitog.MouseButton1Click:Connect(function() Library_Function.ButtonEffect() end)
+						local vanmeo = false
+						spawn(function() 
+							while wait() do 
+								if SettingsRac[Type].Breathing.Toggle then 
+									UpdateColor(ColorVal.BackgroundColor3)
+								end
+							end
+						end)
+						local function cacrac() 
+							local co2, co1 = Cor2.BackgroundColor3, Cor1.BackgroundColor3
+							local csize = SettingsRac[Type].Breathing.Toggle and UDim2.new(1,-4,1,-4) or UDim2.new(0,0,0,0)
+							local pos = SettingsRac[Type].Breathing.Toggle and UDim2.new(.5,0,.5,0) or UDim2.new(0,0,1,0)
+							local apos = SettingsRac[Type].Breathing.Toggle and Vector2.new(.5,.5) or Vector2.new(0,1)
+							game.TweenService:Create(check_2,TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{Size = csize, Position = pos, AnchorPoint = apos}):Play()
+							if SettingsRac[Type].Breathing.Toggle then 
+							   local ab = game.TweenService:Create(ColorVal,TweenInfo.new(2),{BackgroundColor3 = co1})
+							   local ab1 = game.TweenService:Create(Color,TweenInfo.new(2),{BackgroundColor3 = co1})
+								ab:Play()
+								ab1:Play()
+								ab.Completed:Connect(function()
+									if SettingsRac[Type].Breathing.Toggle then 
+									  local  ac = game.TweenService:Create(ColorVal,TweenInfo.new(2),{BackgroundColor3 = co2})
+									   local ac1 = game.TweenService:Create(Color,TweenInfo.new(2),{BackgroundColor3 = co2})
+										ac:Play()
+										ac1:Play()
+										if SettingsRac[Type].Breathing.Toggle then 
+											ac.Completed:Connect(function()
+												ab:Play()
+												ab1:Play()
+											end)
+										end
+									end
+								end)
+								
+							end
+						end
+						spawn(function() 
+							cacrac()
+						end)
+						Hoithoitog.MouseButton1Click:Connect(function()
+							SettingsRac[Type].Breathing.Toggle = not SettingsRac[Type].Breathing.Toggle 
+							cacrac()
+						end)
+	
+					end
+	
+					function Setting_Section_Function.CreateBox(Setting)
+	
+						local TitleText = tostring(Setting.Title) or ""
+						local Placeholder = tostring(Setting.Placeholder) or ""
+						local Default = getgenv().UIColor[Setting.Type] or ""
+	
+						local BoxFrame = Instance.new("Frame")
+						local BoxCorner = Instance.new("UICorner")
+						local BoxBG = Instance.new("Frame")
+						local ButtonCorner = Instance.new("UICorner")
+						local Boxtitle = Instance.new("TextLabel")
+						local BoxCor = Instance.new("Frame")
+						local ButtonCorner_2 = Instance.new("UICorner")
+						local Boxxxx = Instance.new("TextBox")
+						local Lineeeee = Instance.new("Frame")
+	
+						BoxFrame.Name = "BoxFrame"
+						BoxFrame.Parent = Section
+						BoxFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+						BoxFrame.BackgroundTransparency = 1.000
+						BoxFrame.Position = UDim2.new(0, 0, 0.208333328, 0)
+						BoxFrame.Size = UDim2.new(1, 0, 0, 60)
+	
+						BoxCorner.CornerRadius = UDim.new(0, 4)
+						BoxCorner.Name = "BoxCorner"
+						BoxCorner.Parent = BoxFrame
+	
+						BoxBG.Name = "Background1"
+						BoxBG.Parent = BoxFrame
+						BoxBG.AnchorPoint = Vector2.new(0.5, 0.5)
+						BoxBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+						BoxBG.Size = UDim2.new(1, -10, 1, 0)
+						BoxBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+						table.insert(UpdateCallBack["Background 1 Color"],function() 
+							BoxBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+						end)
+						BoxBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+						table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+							BoxBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+						end)
+	
+						ButtonCorner.CornerRadius = UDim.new(0, 4)
+						ButtonCorner.Name = "ButtonCorner"
+						ButtonCorner.Parent = BoxBG
+	
+						Boxtitle.Name = "TextColor"
+						Boxtitle.Parent = BoxBG
+						Boxtitle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						Boxtitle.BackgroundTransparency = 1.000
+						Boxtitle.Position = UDim2.new(0, 10, 0, 0)
+						Boxtitle.Size = UDim2.new(1, -10, 0.5, 0)
+						Boxtitle.Font = Enum.Font.GothamBlack
+						Boxtitle.Text = TitleText
+						Boxtitle.TextSize = 14.000
+						Boxtitle.TextXAlignment = Enum.TextXAlignment.Left
+						Boxtitle.TextColor3 = getgenv().UIColor["Text Color"]
+						table.insert(UpdateCallBack["Text Color"],function() 
+							Boxtitle.TextColor3 = getgenv().UIColor["Text Color"]
+						end)
+	
+						BoxCor.Name = "Background2"
+						BoxCor.Parent = BoxBG
+						BoxCor.AnchorPoint = Vector2.new(1, 0.5)
+						BoxCor.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+						BoxCor.ClipsDescendants = true
+						BoxCor.Position = UDim2.new(1, -5, 0, 40)
+						BoxCor.Size = UDim2.new(1, -10, 0, 25)
+						table.insert(UpdateCallBack["Text Color"],function() 
+							BoxCor.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+						end)
+	
+						ButtonCorner_2.CornerRadius = UDim.new(0, 4)
+						ButtonCorner_2.Name = "ButtonCorner"
+						ButtonCorner_2.Parent = BoxCor
+	
+						Boxxxx.Name = "TextColorPlaceholder"
+						Boxxxx.Parent = BoxCor
+						Boxxxx.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						Boxxxx.BackgroundTransparency = 1.000
+						Boxxxx.Position = UDim2.new(0, 5, 0, 0)
+						Boxxxx.Size = UDim2.new(1, -5, 1, 0)
+						Boxxxx.Font = Enum.Font.GothamBold
+						Boxxxx.PlaceholderText = Placeholder
+						Boxxxx.Text = ""
+						Boxxxx.TextSize = 14.000
+						Boxxxx.TextXAlignment = Enum.TextXAlignment.Left
+						Boxxxx.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+						Boxxxx.TextColor3 = getgenv().UIColor["Text Color"]
+						table.insert(UpdateCallBack["Placeholder Text Color"],function() 
+							Boxxxx.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+						end)
+						table.insert(UpdateCallBack["Text Color"],function() 
+							Boxxxx.TextColor3 = getgenv().UIColor["Text Color"]
+						end)
+	
+						Lineeeee.Name = "Setting_Lineeeee"
+						Lineeeee.Parent = BoxCor
+						Lineeeee.BackgroundTransparency = 1.000
+						Lineeeee.Position = UDim2.new(0, 0, 1, -2)
+						Lineeeee.Size = UDim2.new(1, 0, 0, 6)
+						Lineeeee.BackgroundColor3 = getgenv().UIColor["Textbox Highlight Color"]
+						table.insert(UpdateCallBack["Textbox Highlight Color"],function() 
+							Lineeeee.BackgroundColor3 = getgenv().UIColor["Textbox Highlight Color"]
+						end)
+	
+						Boxxxx.Focused:Connect(function() 
+							TweenService:Create(Lineeeee,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{BackgroundTransparency = 0}):Play()
+						end)
+	
+						Boxxxx.Focused:Connect(function() 
+							Library_Function.ButtonEffect()
+						end)
+	
+						Boxxxx.FocusLost:Connect(function()
+							TweenService:Create(Lineeeee,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{BackgroundTransparency = 1}):Play()
+							if Boxxxx.Text ~= '' then
+								getgenv().UIColor[Setting.Type] = Boxxxx.Text
+								if Setting.Type == "Background Image" then
+									Library_Function.ReloadMain(Boxxxx.Text)
+								end
+							end
+						end)
+	
+						local textbox_function = {}
+	
+						if Default then
+							Boxxxx.Text = Default
+							getgenv().UIColor[Setting.Type] = Default
+						end
+	
+						function textbox_function.SetValue(Value)
+							Boxxxx.Text = Value
+							getgenv().UIColor[Setting.Type]=Value
+						end 
+	
+						return textbox_function;
+	
+	
+					end
+	
+					function Setting_Section_Function.CreateSlider(Setting)
+							
+						local TitleText = tostring(Setting.Title) or ""
+						local Min_Value = tonumber(Setting.Min) or 0
+						local Max_Value = tonumber(Setting.Max) or 100
+						local Precise = Setting.Precise or false
+						local DefaultValue = getgenv().UIColor[Setting.Type] or 0
+						local Callback = function(v) getgenv().UIColor[Setting.Type]=v end
+	
+						local SizeChia = 600;
+	
+						local SliderFrame = Instance.new("Frame")
+						local SliderCorner = Instance.new("UICorner")
+						local SliderBG = Instance.new("Frame")
+						local SliderBGCorner = Instance.new("UICorner")
+						local SliderTitle = Instance.new("TextLabel")
+						local SliderBar = Instance.new("Frame")
+						local SliderButton = Instance.new("TextButton")
+						local SliderBarCorner = Instance.new("UICorner")
+						local Bar = Instance.new("Frame")
+						local BarCorner = Instance.new("UICorner")
+						local Sliderboxframe = Instance.new("Frame")
+						local Sliderbox = Instance.new("UICorner")
+						local Sliderbox_2 = Instance.new("TextBox")
+	
+						SliderFrame.Name = TitleText..'buda'
+						SliderFrame.Parent = Section
+						SliderFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+						SliderFrame.BackgroundTransparency = 1.000
+						SliderFrame.Position = UDim2.new(0, 0, 0.208333328, 0)
+						SliderFrame.Size = UDim2.new(1, 0, 0, 50)
+	
+						SliderCorner.CornerRadius = UDim.new(0, 4)
+						SliderCorner.Name = "SliderCorner"
+						SliderCorner.Parent = SliderFrame
+	
+						SliderBG.Name = "Background1"
+						SliderBG.Parent = SliderFrame
+						SliderBG.AnchorPoint = Vector2.new(0.5, 0.5)
+						SliderBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+						SliderBG.Size = UDim2.new(1, -10, 1, 0)
+						SliderBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+						table.insert(UpdateCallBack["Background 1 Color"],function() 
+							SliderBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+						end)
+						SliderBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+						table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+							SliderBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+						end)
+	
+						SliderBGCorner.CornerRadius = UDim.new(0, 4)
+						SliderBGCorner.Name = "SliderBGCorner"
+						SliderBGCorner.Parent = SliderBG
+	
+						SliderTitle.Name = "TextColor"
+						SliderTitle.Parent = SliderBG
+						SliderTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+						SliderTitle.BackgroundTransparency = 1.000
+						SliderTitle.Position = UDim2.new(0, 10, 0, 0)
+						SliderTitle.Size = UDim2.new(1, -10, 0, 25)
+						SliderTitle.Font = Enum.Font.GothamBlack
+						SliderTitle.Text = TitleText
+						SliderTitle.TextSize = 14.000
+						SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+						SliderTitle.TextColor3 = getgenv().UIColor["Text Color"]
+						table.insert(UpdateCallBack["Text Color"],function() 
+							SliderTitle.TextColor3 = getgenv().UIColor["Text Color"]
+						end)
+	
+						SliderBar.Name = "SliderBar"
+						SliderBar.Parent = SliderFrame
+						SliderBar.AnchorPoint = Vector2.new(.5, 0.5)
+						SliderBar.Position = UDim2.new(.5, 0, 0.5, 14)
+						SliderBar.Size = UDim2.new(0, 600, 0, 6)
+						SliderBar.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+						table.insert(UpdateCallBack["Background 2 Color"],function() 
+							SliderBar.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+						end)
+	
+						SliderButton.Name = "SliderButton "
+						SliderButton.Parent = SliderBar
+						SliderButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+						SliderButton.BackgroundTransparency = 1.000
+						SliderButton.Size = UDim2.new(1, 0, 1, 0)
+						SliderButton.Font = Enum.Font.GothamBold
+						SliderButton.Text = ""
+						SliderButton.TextColor3 = Color3.fromRGB(230, 230, 230)
+						SliderButton.TextSize = 14.000
+	
+						SliderBarCorner.CornerRadius = UDim.new(1, 0)
+						SliderBarCorner.Name = "SliderBarCorner"
+						SliderBarCorner.Parent = SliderBar
+	
+						Bar.Name = "Bar"
+						Bar.BorderSizePixel = 0
+						Bar.Parent = SliderBar
+						Bar.Size = UDim2.new(0, 0, 1, 0)
+						Bar.BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+						table.insert(UpdateCallBack["Slider Line Color"],function() 
+							Bar.BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+						end)
+	
+	
+						BarCorner.CornerRadius = UDim.new(1, 0)
+						BarCorner.Name = "BarCorner"
+						BarCorner.Parent = Bar
+	
+						Sliderboxframe.Name = "Background2"
+						Sliderboxframe.Parent = SliderFrame
+						Sliderboxframe.AnchorPoint = Vector2.new(1, 0)
+						Sliderboxframe.Position = UDim2.new(1, -10, 0, 5)
+						Sliderboxframe.Size = UDim2.new(0, 150, 0, 25)
+						Sliderboxframe.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+						table.insert(UpdateCallBack["Background 2 Color"],function() 
+							Sliderboxframe.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+						end)
+	
+						Sliderbox.CornerRadius = UDim.new(0, 4)
+						Sliderbox.Name = "Sliderbox"
+						Sliderbox.Parent = Sliderboxframe
+	
+						Sliderbox_2.Name = "TextColor"
+						Sliderbox_2.Parent = Sliderboxframe
+						Sliderbox_2.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+						Sliderbox_2.BackgroundTransparency = 1.000
+						Sliderbox_2.Size = UDim2.new(1, 0, 1, 0)
+						Sliderbox_2.Font = Enum.Font.GothamBold
+						Sliderbox_2.Text = ""
+						Sliderbox_2.TextSize = 14.000
+						Sliderbox_2.TextColor3 = getgenv().UIColor["Text Color"]
+						table.insert(UpdateCallBack["Text Color"],function() 
+							Sliderbox_2.TextColor3 = getgenv().UIColor["Text Color"]
+						end)
+	
+						SliderButton.MouseEnter:Connect(function()
+							TweenService:Create(Bar,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{BackgroundColor3 = getgenv().UIColor["Slider Highlight Color"]}):Play()
+						end)
+	
+						SliderButton.MouseLeave:Connect(function()
+							TweenService:Create(Bar,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{BackgroundColor3 = getgenv().UIColor["Slider Line Color"]}):Play()
+						end)
+	
+						local mouse = game.Players.LocalPlayer:GetMouse()
+	
+						if DefaultValue then 
+							if DefaultValue <= Min_Value then DefaultValue = Min_Value elseif DefaultValue >= Max_Value then DefaultValue = Max_Value end
+							Bar.Size = UDim2.new(1 - ((Max_Value - DefaultValue) / (Max_Value - Min_Value)),0, 0, 6)
+							Sliderbox_2.Text = DefaultValue
+							Callback(DefaultValue)
+						end
+	
+						SliderButton.MouseButton1Down:Connect(function()
+							local value = Precise and  tonumber(string.format("%.1f",(((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))) or math.floor((((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))
+	
+							pcall(function()
+								Callback(value)
+								Sliderbox_2.Text = value
+							end)
+							Bar.Size = UDim2.new(0, math.clamp(mouse.X - Bar.AbsolutePosition.X, 0, SizeChia), 0, 6)
+							moveconnection = mouse.Move:Connect(function()   
+								local value = Precise and  tonumber(string.format("%.1f",(((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))) or math.floor((((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))
+								pcall(function()
+									Callback(value)
+									Sliderbox_2.Text = value
+								end)
+								Bar.Size = UDim2.new(0, math.clamp(mouse.X - Bar.AbsolutePosition.X, 0, SizeChia), 0, 6)
+							end)
+							releaseconnection = uis.InputEnded:Connect(function(Mouse)
+								if Mouse.UserInputType == Enum.UserInputType.MouseButton1 then
+									local value = Precise and  tonumber(string.format("%.1f",(((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))) or math.floor((((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))
+	
+									pcall(function()
+										Callback(value)
+										Sliderbox_2.Text = value
+									end)
+									Bar.Size = UDim2.new(0, math.clamp(mouse.X - Bar.AbsolutePosition.X, 0, SizeChia), 0, 6)
+									moveconnection:Disconnect()
+									releaseconnection:Disconnect()
+								end
+							end)
+						end)
+	
+						local function GetSliderValue(Value)
+							if tonumber(Value) <= Min_Value then
+								Bar.Size = UDim2.new(0,(0 * SizeChia), 0, 6)
+								Sliderbox_2.Text = Min_Value
+								Callback(tonumber(Min_Value))
+	
+							elseif tonumber(Value) >= Max_Value then
+								Bar.Size = UDim2.new(0,(Max_Value  /  Max_Value * SizeChia), 0, 6)
+								Sliderbox_2.Text = Max_Value
+								Callback(tonumber(Max_Value))
+							else
+								Bar.Size = UDim2.new(1 - ((Max_Value - Value) / (Max_Value - Min_Value)),0, 0, 6)
+								Callback(tonumber(Value))
+							end
+						end
+	
+	
+						Sliderbox_2.FocusLost:Connect(function()
+							GetSliderValue(Sliderbox_2.Text)
+						end)
+	
+	
+						local slider_function = {}
+	
+						function slider_function.SetValue(Value)
+							GetSliderValue(Value)
+						end
+	
+						return slider_function
+	
+	
+					end
+	
+				return Setting_Section_Function
+	
+			end
+	
+			return Setting_Function
+	
+	
 		end
+	
+		-- local CustomColorUI = Library.CreateCustomColor()
+	
+		-- local CCMain = CustomColorUI.CreateSection("Main")
+		-- CCMain.CreateColorPicker({Title = "Border Color", Type = "Border Color"})
+		-- CCMain.CreateColorPicker({Title = "Click Effect Color", Type = "Click Effect Color"})
+		-- CCMain.CreateColorPicker({Title = "Setting Icon Color", Type = "Setting Icon Color"})
+		-- CCMain.CreateBox({Title = 'Logo Image', Placeholder = 'URL Here (PNG only), Recommended 128x128', Type = "Logo Image"})
+		
+		-- local CCSearch = CustomColorUI.CreateSection("Search")
+		-- CCSearch.CreateColorPicker({Title = "Search Icon Color", Type = "Search Icon Color"})
+		-- CCSearch.CreateColorPicker({Title = "Search Icon Highlight Color", Type = "Search Icon Highlight Color"})
+		
+		-- local CCText = CustomColorUI.CreateSection("Text")
+		-- CCText.CreateColorPicker({Title = "GUI Text Color", Type = "GUI Text Color"})
+		-- CCText.CreateColorPicker({Title = "Text Color", Type = "Text Color"})
+		-- CCText.CreateColorPicker({Title = "Placeholder Text Color", Type = "Placeholder Text Color"})
+		-- CCText.CreateColorPicker({Title = "Title Text Color", Type = "Title Text Color"})
+		
+		-- local CCBackground = CustomColorUI.CreateSection("Background")
+		-- CCBackground.CreateColorPicker({Title = "Background 1 Color", Type = "Background 1 Color"})
+		-- CCBackground.CreateSlider({Title = 'Background 1 Transparency', Type = "Background 1 Transparency", Min = 0, Max = 1, Default = 0, Precise = true})
+		-- CCBackground.CreateColorPicker({Title = "Background 2 Color", Type = "Background 2 Color"})
+		-- CCBackground.CreateColorPicker({Title = "Background 3 Color", Type = "Background 3 Color"})
+		-- CCBackground.CreateBox({Title = 'Background Image', Placeholder = 'URL Here (WEBM / PNG only), Recommended 1280x720', Type = "Background Image"})
+		
+		-- local CCPage = CustomColorUI.CreateSection("Page")
+		-- CCPage.CreateColorPicker({Title = "Page Selected Color", Type = "Page Selected Color"})
+		
+		-- local CCSection = CustomColorUI.CreateSection("Section")
+		-- CCSection.CreateColorPicker({Title = "Section Text Color", Type = "Section Text Color"})
+		-- CCSection.CreateColorPicker({Title = "Section Underline Color", Type = "Section Underline Color"})
+		
+		-- local CCToggle = CustomColorUI.CreateSection("Toggle")
+		-- CCToggle.CreateColorPicker({Title = "Toggle Border Color", Type = "Toggle Border Color"})
+		-- CCToggle.CreateColorPicker({Title = "Toggle Checked Color", Type = "Toggle Checked Color"})
+		-- CCToggle.CreateColorPicker({Title = "Toggle Desc Color", Type = "Toggle Desc Color"})
+		
+		-- local CCButton = CustomColorUI.CreateSection("Button")
+		-- CCButton.CreateColorPicker({Title = "Button Color", Type = "Button Color"})
+		
+		-- local CCButton = CustomColorUI.CreateSection("Label")
+		-- CCButton.CreateColorPicker({Title = "Label Color", Type = "Label Color"})
+		
+		-- local CCDropdown = CustomColorUI.CreateSection("Dropdown")
+		-- CCDropdown.CreateColorPicker({Title = "Dropdown Icon Color", Type = "Dropdown Icon Color"})
+		-- CCDropdown.CreateColorPicker({Title = "Dropdown Selected Color", Type = "Dropdown Selected Color"})
+		
+		-- local CCTextbox = CustomColorUI.CreateSection("Textbox")
+		-- CCTextbox.CreateColorPicker({Title = "Textbox Highlight Color", Type = "Textbox Highlight Color"})
+		
+		-- local CCBox = CustomColorUI.CreateSection("Box")
+		-- CCBox.CreateColorPicker({Title = "Box Highlight Color", Type = "Box Highlight Color"})
+		
+		-- local CCSlider = CustomColorUI.CreateSection("Slider")
+		-- CCSlider.CreateColorPicker({Title = "Slider Line Color", Type = "Slider Line Color"})
+		-- CCSlider.CreateColorPicker({Title = "Slider Highlight Color", Type = "Slider Highlight Color"})
+		
+		-- local CCAnimation = CustomColorUI.CreateSection("Animation")
+		-- CCAnimation.CreateSlider({Title = 'Tween Animation 1 Speed', Type = "Tween Animation 1 Speed", Min = 0, Max = 0.75, Default = 0.25, Precise = true})
+		-- CCAnimation.CreateSlider({Title = 'Tween Animation 2 Speed', Type = "Tween Animation 2 Speed", Min = 0, Max = 1, Default = 0.5, Precise = true})
+		-- CCAnimation.CreateSlider({Title = 'Tween Animation 3 Speed', Type = "Tween Animation 3 Speed", Min = 0, Max = 0.5, Default = 0.1, Precise = true})
+	
+		local Main_Function = {}
+	
+		local LayoutOrderBut = -1
+		local LayoutOrder = -1
+		local PageCounter = 1
+	
+		function Main_Function.CreatePage(Setting)
+	
+			local Page_Name = tostring(Setting.Page_Name) 
+			local Page_Title = tostring(Setting.Page_Title)
+	
+			LayoutOrder = LayoutOrder + 1
+			LayoutOrderBut = LayoutOrderBut + 1
+	
+			--Control 
+			local PageName = Instance.new("Frame")
+			local Frame = Instance.new("Frame")
+			local TabNameCorner = Instance.new("UICorner")
+			local Line = Instance.new("Frame")
+			local InLine = Instance.new("Frame")
+			local LineCorner = Instance.new("UICorner")
+			local TabTitleContainer = Instance.new("Frame")
+			local TabTitle = Instance.new("TextLabel")
+			local PageButton = Instance.new("TextButton")
+	
+	
+			PageName.Name = Page_Name.."_Control"
+			PageName.Parent = ControlList
+			PageName.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			PageName.BackgroundTransparency = 1.000
+			PageName.Size = UDim2.new(1, -10, 0, 25)
+			PageName.LayoutOrder = LayoutOrderBut
+	
+			Frame.Parent = PageName
+			Frame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			Frame.BackgroundTransparency = 1.000
+			Frame.Position = UDim2.new(0, 5, 0, 0)
+			Frame.Size = UDim2.new(1, -5, 1, 0)
+	
+			TabNameCorner.CornerRadius = UDim.new(0, 4)
+			TabNameCorner.Name = "TabNameCorner"
+			TabNameCorner.Parent = Frame
+	
+			Line.Name = "Line"
+			Line.Parent = Frame
+			Line.AnchorPoint = Vector2.new(0, 0.5)
+			Line.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			Line.BackgroundTransparency = 1.000
+			Line.Position = UDim2.new(0, 0, 0.5, 0)
+			Line.Size = UDim2.new(0, 14, 1, 0)
+	
+			InLine.Name = "PageInLine"
+			InLine.Parent = Line
+			InLine.AnchorPoint = Vector2.new(0.5, 0.5)
+			InLine.BorderSizePixel = 0
+			InLine.Position = UDim2.new(0.5, 0, 0.5, 0)
+			InLine.Size = UDim2.new(1, -10, 0, 0)
+			InLine.BackgroundColor3 = getgenv().UIColor["Page Selected Color"]
+			table.insert(UpdateCallBack["Page Selected Color"],function() 
+				InLine.BackgroundColor3 = getgenv().UIColor["Page Selected Color"]
+			end)
+	
+			LineCorner.Name = "LineCorner"
+			LineCorner.Parent = InLine
+	
+			TabTitleContainer.Name = "TabTitleContainer"
+			TabTitleContainer.Parent = Frame
+			TabTitleContainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			TabTitleContainer.BackgroundTransparency = 1.000
+			TabTitleContainer.Position = UDim2.new(0, 15, 0, 0)
+			TabTitleContainer.Size = UDim2.new(1, -15, 1, 0)
+	
+			TabTitle.Name = "GUITextColor"
+			TabTitle.Parent = TabTitleContainer
+			TabTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			TabTitle.BackgroundTransparency = 1.000
+			TabTitle.Size = UDim2.new(1, 0, 1, 0)
+			TabTitle.Font = Enum.Font.GothamBold
+			TabTitle.Text = Page_Name
+			TabTitle.TextColor3 = Color3.fromRGB(230, 230, 230)
+			TabTitle.TextSize = 14.000
+			TabTitle.TextXAlignment = Enum.TextXAlignment.Left
+			TabTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+			table.insert(UpdateCallBack["GUI Text Color"],function() 
+				TabTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+			end)
+	
+			PageButton.Name = "PageButton"
+			PageButton.Parent = PageName
+			PageButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			PageButton.BackgroundTransparency = 1.000
+			PageButton.Size = UDim2.new(1, 0, 1, 0)
+			PageButton.Font = Enum.Font.SourceSans
+			PageButton.Text = ""
+			PageButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+			PageButton.TextSize = 14.000
+	
+			-- Container
+	
+			local PageContainer = Instance.new("Frame")
+			local UICorner = Instance.new("UICorner")
+			local PageTitle = Instance.new("TextLabel")
+			local PageList = Instance.new("ScrollingFrame")
+			local Pagelistlayout = Instance.new("UIListLayout")
+	
+			local CurrentPage = PageCounter
+			PageCounter = PageCounter + 1
+			PageContainer.Name = "Page" .. CurrentPage
+			PageContainer.Parent = MainPage
+			PageContainer.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+			PageContainer.Position = UDim2.new(0, 190, 0, 30)
+			PageContainer.Size = UDim2.new(0, 435, 0, 325)
+			PageContainer.LayoutOrder = LayoutOrder
+			table.insert(UpdateCallBack["Background 1 Color"],function() 
+				PageContainer.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+			end)
+			PageContainer.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+			table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+				PageContainer.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+			end)
+	
+			UICorner.CornerRadius = UDim.new(0, 4)
+			UICorner.Parent = PageContainer
+	
+			PageTitle.Name = "GUITextColor"
+			PageTitle.Parent = PageContainer
+			PageTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			PageTitle.BackgroundTransparency = 1.000
+			PageTitle.Position = UDim2.new(0, 5, 0, 0)
+			PageTitle.Size = UDim2.new(1, 0, 0, 25)
+			PageTitle.Font = Enum.Font.GothamBold
+			PageTitle.Text = Page_Title
+			PageTitle.TextSize = 16.000
+			PageTitle.TextXAlignment = Enum.TextXAlignment.Left
+			PageTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+			table.insert(UpdateCallBack["GUI Text Color"],function() 
+				PageTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+			end)
+	
+			PageList.Name = "PageList"
+			PageList.Parent = PageContainer
+			PageList.Active = true
+			PageList.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			PageList.BackgroundTransparency = 1.000
+			PageList.BorderColor3 = Color3.fromRGB(27, 42, 53)
+			PageList.BorderSizePixel = 0
+			PageList.Position = UDim2.new(0, 5, 0, 30)
+			PageList.Size = UDim2.new(1, -10, 1, -30)
+			PageList.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+			PageList.ScrollBarThickness = 5
+			PageList.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+	
+			Pagelistlayout.Name = "Pagelistlayout"
+			Pagelistlayout.Parent = PageList
+			Pagelistlayout.SortOrder = Enum.SortOrder.LayoutOrder
+			Pagelistlayout.Padding = UDim.new(0, 5)
+			Pagelistlayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+				PageList.CanvasSize = UDim2.new(0, 0, 0, Pagelistlayout.AbsoluteContentSize.Y + 5)
+			end)
+	
+			local PageSearch = Instance.new("Frame")
+			local PageSearchCorner = Instance.new("UICorner")
+			local SearchFrame = Instance.new("Frame")
+			local SearchIcon = Instance.new("ImageLabel")
+			local active = Instance.new("TextButton")
+			local Bucu = Instance.new("TextBox")
+	
+			PageSearch.Name = "Background2"
+			PageSearch.Parent = PageContainer
+			PageSearch.AnchorPoint = Vector2.new(1, 0)
+			PageSearch.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+			PageSearch.Position = UDim2.new(1, -5, 0, 5)
+			PageSearch.Size = UDim2.new(0, 20, 0, 20)
+			PageSearch.ClipsDescendants = true
+			table.insert(UpdateCallBack["Background 2 Color"],function() 
+				PageSearch.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+			end)
+	
+			PageSearchCorner.CornerRadius = UDim.new(0, 2)
+			PageSearchCorner.Name = "PageSearchCorner"
+			PageSearchCorner.Parent = PageSearch
+	
+			SearchFrame.Name = "SearchFrame"
+			SearchFrame.Parent = PageSearch
+			SearchFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			SearchFrame.BackgroundTransparency = 1.000
+			SearchFrame.Size = UDim2.new(0, 20, 0, 20)
+	
+			SearchIcon.Name = "SearchIcon"
+			SearchIcon.Parent = SearchFrame
+			SearchIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+			SearchIcon.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			SearchIcon.BackgroundTransparency = 1.000
+			SearchIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+			SearchIcon.Size = UDim2.new(0, 16, 0, 16)
+			SearchIcon.Image = "rbxassetid://8154282545"
+			SearchIcon.ImageColor3 = getgenv().UIColor["Search Icon Color"]
+			table.insert(UpdateCallBack["Search Icon Color"],function() 
+				SearchIcon.ImageColor3 = getgenv().UIColor["Search Icon Color"]
+			end)
+	
+			active.Name = "active"
+			active.Parent = SearchFrame
+			active.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			active.BackgroundTransparency = 1.000
+			active.Size = UDim2.new(1, 0, 1, 0)
+			active.Font = Enum.Font.SourceSans
+			active.Text = ""
+			active.TextColor3 = Color3.fromRGB(0, 0, 0)
+			active.TextSize = 14.000
+	
+			Bucu.Name = "TextColorPlaceholder"
+			Bucu.Parent = PageSearch
+			Bucu.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			Bucu.BackgroundTransparency = 1.000
+			Bucu.Position = UDim2.new(0, 30, 0, 0)
+			Bucu.Size = UDim2.new(1, -30, 1, 0)
+			Bucu.Font = Enum.Font.GothamBold
+			Bucu.Text = ""
+			Bucu.TextSize = 14.000
+			Bucu.TextXAlignment = Enum.TextXAlignment.Left
+			Bucu.PlaceholderText = "Search Section name"
+			Bucu.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+			Bucu.TextColor3 = getgenv().UIColor["Text Color"]
+			table.insert(UpdateCallBack["Placeholder Text Color"],function() 
+				Bucu.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+			end)
+			table.insert(UpdateCallBack["Text Color"],function() 
+				Bucu.TextColor3 = getgenv().UIColor["Text Color"]
+			end)
+			
+			local cummmed = false 
+	
+			active.MouseEnter:Connect(function()
+				TweenService:Create(SearchIcon,TweenInfo.new(getgenv().UIColor["Tween Animation 3 Speed"]),{ImageColor3 = getgenv().UIColor["Search Icon Highlight Color"]}):Play()
+			end)
+	
+			active.MouseLeave:Connect(function()
+				TweenService:Create(SearchIcon,TweenInfo.new(getgenv().UIColor["Tween Animation 3 Speed"]),{ImageColor3 = getgenv().UIColor["Search Icon Color"]}):Play()
+			end)
+	
+			active.MouseButton1Click:Connect(function()
+				Library_Function.ButtonEffect()
+			end)
+	
+			Bucu.Focused:Connect(function()
+				Library_Function.ButtonEffect()
+			end)
+	
+			active.MouseButton1Click:Connect(function()
+				cummmed = not cummmed
+				local size = cummmed and UDim2.new(0,175,0,20) or  UDim2.new(0,20,0,20)
+				game.TweenService:Create(PageSearch,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Size = size}):Play()
+			end)
+	
+			local function succac()
+				for i,v in next, PageList:GetChildren() do 
+					if not v:IsA('UIListLayout') then 
+						v.Visible = false
+					end
+				end
+			end
+			
+			local function ra()
+				for a, b in pairs(PageList:GetChildren()) do
+					if not b:IsA('UIListLayout') then 
+						if string.find(string.lower(b.Name),string.lower(Bucu.Text)) then 
+							b.Visible = true
+						end
+					end
+				end
+			end
+			
+			Bucu:GetPropertyChangedSignal("Text"):Connect(function()
+				succac()
+				ra()
+			end)
+	
+			for i,v in pairs(ControlList:GetChildren()) do
+				if not (v:IsA('UIListLayout')) then
+					if i == 2 then 
+						v.Frame.Line.PageInLine.Size = UDim2.new(1, -10, 1, -10)
+						oldlay = v.LayoutOrder
+						oldobj = v
+					end
+				end
+			end
+	
+			PageButton.MouseButton1Click:Connect(function()
+				spawn(function()
+					Library_Function.ButtonEffect()
+				end)
+		  
+				if tostring(UIPage.CurrentPage) == PageContainer.Name then 
+					return
+				end
+	
+				for i,v in pairs(MainPage:GetChildren()) do
+					if not (v:IsA('UIPageLayout')) and not (v:IsA('UICorner')) then
+						v.Visible = false
+					end
+				end
+	
+				PageContainer.Visible = true 
+				UIPage:JumpTo(PageContainer)
+	
+				for i,v in next, ControlList:GetChildren() do
+					if not (v:IsA('UIListLayout')) then
+						if v.Name == Page_Name.."_Control" then 
+							if v.LayoutOrder > oldlay  then 
+								oldobj.Active = false 
+								TweenService:Create(oldobj.Frame.Line.PageInLine,TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{Size = UDim2.new(1,-10,0,0),Position = UDim2.new(0.5, 0, 1, 0), AnchorPoint = Vector2.new(.5,1)}):Play()
+								v.Frame.Line.PageInLine.Position = UDim2.new(0.5, 0, 0, 0)
+								v.Frame.Line.PageInLine.AnchorPoint = Vector2.new(.5,0)
+								wait(getgenv().UIColor["Tween Animation 1 Speed"])
+								TweenService:Create(v.Frame.Line.PageInLine,TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{Size = UDim2.new(1,-10,1,-10),Position = UDim2.new(0.5, 0, .5, 0), AnchorPoint = Vector2.new(.5,.5)}):Play()
+								v.Active = true
+								oldobj = v
+								oldlay = v.LayoutOrder
+							else
+								oldobj.Active = false 
+								TweenService:Create(oldobj.Frame.Line.PageInLine,TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{Size = UDim2.new(1,-10,0,0),Position = UDim2.new(0.5, 0, 0, 0), AnchorPoint = Vector2.new(.5,0)}):Play()
+								v.Frame.Line.PageInLine.Position = UDim2.new(0.5, 0, 1, 0)
+								v.Frame.Line.PageInLine.AnchorPoint = Vector2.new(.5,1)
+								wait(getgenv().UIColor["Tween Animation 1 Speed"])
+								TweenService:Create(v.Frame.Line.PageInLine,TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{Size = UDim2.new(1,-10,1,-10),Position = UDim2.new(0.5, 0, .5, 0), AnchorPoint = Vector2.new(.5,.5)}):Play()
+								v.Active = true
+								oldobj = v
+								oldlay = v.LayoutOrder
+							end
+	
+						end
+					end
+				end
+			end)
+	
+			local Page_Function = {}
+	
+				function Page_Function.CreateSection(Section_Name)
+	
+					local Section = Instance.new("Frame")
+					local UICorner = Instance.new("UICorner")
+					local Topsec = Instance.new("Frame")
+					local Sectiontitle = Instance.new("TextLabel")
+					local Linesec = Instance.new("Frame")
+					local UIGradient = Instance.new("UIGradient")
+					local SectionList = Instance.new("UIListLayout")
+	
+	
+					Section.Name = Section_Name.."_Dot"
+					Section.Parent = PageList
+					Section.Size = UDim2.new(0, 415, 0, 100)
+					Section.BackgroundColor3 = getgenv().UIColor["Background 3 Color"]
+					table.insert(UpdateCallBack["Background 3 Color"],function() 
+						Section.BackgroundColor3 = getgenv().UIColor["Background 3 Color"]
+					end)
+					Section.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+					table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+						Section.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+					end)
+	
+					UICorner.CornerRadius = UDim.new(0, 4)
+					UICorner.Parent = Section
+	
+					Topsec.Name = "Topsec"
+					Topsec.Parent = Section
+					Topsec.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+					Topsec.BackgroundTransparency = 1.000
+					Topsec.Size = UDim2.new(0, 415, 0, 30)
+	
+					Sectiontitle.Name = "Sectiontitle"
+					Sectiontitle.Parent = Topsec
+					Sectiontitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+					Sectiontitle.BackgroundTransparency = 1.000
+					Sectiontitle.Size = UDim2.new(1, 0, 1, 0)
+					Sectiontitle.Font = Enum.Font.GothamBold
+					Sectiontitle.Text = Section_Name
+					Sectiontitle.TextSize = 14.000
+					Sectiontitle.TextColor3 = getgenv().UIColor["Section Text Color"]
+					table.insert(UpdateCallBack["Section Text Color"],function() 
+						Sectiontitle.TextColor3 = getgenv().UIColor["Section Text Color"]
+					end)
+	
+					Linesec.Name = "Linesec"
+					Linesec.Parent = Topsec
+					Linesec.AnchorPoint = Vector2.new(0.5, 1)
+					Linesec.BorderSizePixel = 0
+					Linesec.Position = UDim2.new(0.5, 0, 1, -2)
+					Linesec.Size = UDim2.new(1, -10, 0, 2)
+					Linesec.BackgroundColor3 = getgenv().UIColor["Section Underline Color"]
+					table.insert(UpdateCallBack["Section Underline Color"],function() 
+						Linesec.BackgroundColor3 = getgenv().UIColor["Section Underline Color"]
+					end)
+	
+					UIGradient.Transparency = NumberSequence.new{NumberSequenceKeypoint.new(0.00, 1.00), NumberSequenceKeypoint.new(0.50, 0.00), NumberSequenceKeypoint.new(0.51, 0.02), NumberSequenceKeypoint.new(1.00, 1.00)}
+					UIGradient.Parent = Linesec
+	
+					SectionList.Name = "SectionList"
+					SectionList.Parent = Section
+					SectionList.SortOrder = Enum.SortOrder.LayoutOrder
+					SectionList.Padding = UDim.new(0, 5)
+	
+					SectionList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+						Section.Size = UDim2.new(1, -5, 0, SectionList.AbsoluteContentSize.Y + 5)
+					end)
+	
+					local Section_Function = {}
+	
+					   function Section_Function.CreateToggle(Setting, Callback)
+	
+							local Title = tostring(Setting.Title)
+							local Desc = Setting.Desc
+							local Default = Setting.Default
+							if Default == nil then Default = false end
+							local Callback = Callback or function() end
+	
+							local ToggleFrame = Instance.new("Frame")
+							local TogFrame1 = Instance.new("Frame")
+							local checkbox = Instance.new("ImageLabel")
+							local check = Instance.new("ImageLabel")
+							local ToggleDesc = Instance.new("TextLabel")
+							local ToggleTitle = Instance.new("TextLabel")
+							local ToggleBg = Instance.new("Frame")
+							local ToggleCorner = Instance.new("UICorner")
+							local ToggleButton = Instance.new("TextButton")
+							local ToggleList = Instance.new("UIListLayout")
+	
+							ToggleFrame.Name = "ToggleFrame"
+							ToggleFrame.Parent = Section
+							ToggleFrame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							ToggleFrame.BackgroundTransparency = 1.000
+							ToggleFrame.Position = UDim2.new(0, 0, 0.300000012, 0)
+							ToggleFrame.Size = UDim2.new(1, 0, 0, 0)
+							ToggleFrame.AutomaticSize = Enum.AutomaticSize.Y
+	
+							TogFrame1.Name = "TogFrame1"
+							TogFrame1.Parent = ToggleFrame
+							TogFrame1.AnchorPoint = Vector2.new(0.5, 0.5)
+							TogFrame1.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							TogFrame1.BackgroundTransparency = 1.000
+							TogFrame1.Position = UDim2.new(0.5, 0, 0.5, 0)
+							TogFrame1.Size = UDim2.new(1, -10, 0, 0)
+							TogFrame1.AutomaticSize = Enum.AutomaticSize.Y
+	
+							checkbox.Name = "checkbox"
+							checkbox.Parent = TogFrame1
+							checkbox.AnchorPoint = Vector2.new(1, 0.5)
+							checkbox.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							checkbox.BackgroundTransparency = 1.000
+							checkbox.Position = UDim2.new(1, -5, 0.5, 3)
+							checkbox.Size = UDim2.new(0, 25, 0, 25)
+							checkbox.Image = "rbxassetid://4552505888"
+							checkbox.ImageColor3 = getgenv().UIColor["Toggle Border Color"]
+							table.insert(UpdateCallBack["Toggle Border Color"],function() 
+								checkbox.ImageColor3 = getgenv().UIColor["Toggle Border Color"]
+							end)
+	
+							check.Name = "check"
+							check.Parent = checkbox
+							check.AnchorPoint = Vector2.new(0, 1)
+							check.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							check.BackgroundTransparency = 1.000
+							check.Position = UDim2.new(0, 0, 1, 0)
+							check.Image = "rbxassetid://4555411759"
+							check.ImageColor3 = getgenv().UIColor["Toggle Checked Color"]
+							table.insert(UpdateCallBack["Toggle Checked Color"],function() 
+								check.ImageColor3 = getgenv().UIColor["Toggle Checked Color"]
+							end)
+	
+							local cac = 5
+							if Desc then
+								cac = 0
+								ToggleDesc.Name = "ToggleDesc"
+								ToggleDesc.Parent = TogFrame1
+								ToggleDesc.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+								ToggleDesc.BackgroundTransparency = 1.000
+								ToggleDesc.Position = UDim2.new(0, 15, 0, 20)
+								ToggleDesc.Size = UDim2.new(1, -50, 0, 0)
+								ToggleDesc.Font = Enum.Font.GothamBlack
+								ToggleDesc.Text = Desc
+								ToggleDesc.TextSize = 13.000
+								ToggleDesc.TextWrapped = true
+								ToggleDesc.TextXAlignment = Enum.TextXAlignment.Left
+								ToggleDesc.RichText = true
+								ToggleDesc.AutomaticSize = Enum.AutomaticSize.Y
+								ToggleDesc.TextColor3 = getgenv().UIColor["Toggle Desc Color"]
+								table.insert(UpdateCallBack["Toggle Desc Color"],function() 
+									ToggleDesc.TextColor3 = getgenv().UIColor["Toggle Desc Color"]
+								end)
+							else
+								ToggleDesc.Text = ''
+							end
+	
+							ToggleTitle.Name = "TextColor"
+							ToggleTitle.Parent = TogFrame1
+							ToggleTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							ToggleTitle.BackgroundTransparency = 1.000
+							ToggleTitle.Position = UDim2.new(0, 10, 0, cac)
+							ToggleTitle.Size = UDim2.new(1, -10, 0, 20)
+							ToggleTitle.Font = Enum.Font.GothamBlack
+							ToggleTitle.Text = Title
+							ToggleTitle.TextSize = 14.000
+							ToggleTitle.TextXAlignment = Enum.TextXAlignment.Left
+							ToggleTitle.TextYAlignment = Enum.TextYAlignment.Center
+							ToggleTitle.RichText = true
+							ToggleTitle.AutomaticSize = Enum.AutomaticSize.Y
+							ToggleTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							table.insert(UpdateCallBack["Text Color"],function() 
+								ToggleTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							end)
+	
+							ToggleBg.Name = "Background1"
+							ToggleBg.Parent = TogFrame1
+							ToggleBg.Size = UDim2.new(1, 0, 1, 6)
+							ToggleBg.ZIndex = 0
+							ToggleBg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							table.insert(UpdateCallBack["Background 1 Color"],function() 
+								ToggleBg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							end)
+							ToggleBg.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+								ToggleBg.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							end)
+	
+							ToggleCorner.CornerRadius = UDim.new(0, 4)
+							ToggleCorner.Name = "ToggleCorner"
+							ToggleCorner.Parent = ToggleBg
+	
+							ToggleButton.Name = "ToggleButton"
+							ToggleButton.Parent = TogFrame1
+							ToggleButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							ToggleButton.BackgroundTransparency = 1.000
+							ToggleButton.Size = UDim2.new(1, 0, 1, 6)
+							ToggleButton.Font = Enum.Font.SourceSans
+							ToggleButton.Text = ""
+							ToggleButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+							ToggleButton.TextSize = 14.000
+	
+							ToggleList.Name = "ToggleList"
+							ToggleList.Parent = ToggleFrame
+							ToggleList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+							ToggleList.SortOrder = Enum.SortOrder.LayoutOrder
+							ToggleList.VerticalAlignment = Enum.VerticalAlignment.Center
+							ToggleList.Padding = UDim.new(0, 5)
+	
+							local function ChangeStage(val)
+	
+								local csize = val and UDim2.new(1,-4,1,-4) or UDim2.new(0,0,0,0)
+								local pos = val and UDim2.new(.5,0,.5,0) or UDim2.new(0,0,1,0)
+								local apos = val and Vector2.new(.5,.5) or Vector2.new(0,1)
+	
+								game.TweenService:Create(check,TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"]),{Size = csize, Position = pos, AnchorPoint = apos}):Play()
+	
+								Callback(val)
+	
+							end
+	
+							if Callback then ChangeStage(Default) end 
+	
+							ToggleButton.MouseButton1Click:Connect(function()
+								Library_Function.ButtonEffect()
+							end)
+							local function ButtonClick() 
+								Default = not Default
+								ChangeStage(Default)
+							end
+							ToggleButton.MouseButton1Down:Connect(function()
+								ButtonClick()
+							end)
+	
+							local tog_func = {}
+	
+									function tog_func.SetStage(value)
+										if value ~= Default then 
+											ButtonClick()
+										end
+									end
+	
+							return tog_func
+	
+	
+						end
+	
+						function Section_Function.CreateButton(Setting, Callback)
+	
+							local Title = Setting.Title
+							local Callback = Callback or function() end
+	
+							local ButtonFrame = Instance.new("Frame")
+							local ButtonBG = Instance.new("Frame")
+							local ButtonCorner = Instance.new("UICorner")
+							local ButtonTitle = Instance.new("TextLabel")
+							local Button = Instance.new("TextButton")
+	
+							ButtonFrame.Name = Title..'dot'
+							ButtonFrame.Parent = Section
+							ButtonFrame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							ButtonFrame.BackgroundTransparency = 1.000
+							ButtonFrame.Position = UDim2.new(0, 0, 0.300000012, 0)
+							ButtonFrame.Size = UDim2.new(1, 0, 0, 25)
+	
+							ButtonBG.Name = "ButtonBG"
+							ButtonBG.Parent = ButtonFrame
+							ButtonBG.AnchorPoint = Vector2.new(0.5, 0.5)
+							ButtonBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+							ButtonBG.Size = UDim2.new(1, -10, 1, 0)
+							ButtonBG.BackgroundColor3 = getgenv().UIColor["Button Color"]
+							table.insert(UpdateCallBack["Button Color"],function() 
+								ButtonBG.BackgroundColor3 = getgenv().UIColor["Button Color"]
+							end)
+							ButtonBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+								ButtonBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							end)
+	
+							ButtonCorner.CornerRadius = UDim.new(0, 4)
+							ButtonCorner.Name = "ButtonCorner"
+							ButtonCorner.Parent = ButtonBG
+	
+							ButtonTitle.Name = "TextColor"
+							ButtonTitle.Parent = ButtonBG
+							ButtonTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							ButtonTitle.BackgroundTransparency = 1.000
+							ButtonTitle.Position = UDim2.new(0, 10, 0, 0)
+							ButtonTitle.Size = UDim2.new(1, -10, 1, 0)
+							ButtonTitle.Font = Enum.Font.GothamBlack
+							ButtonTitle.Text = Title
+							ButtonTitle.TextSize = 14.000
+							ButtonTitle.TextXAlignment = Enum.TextXAlignment.Left
+							ButtonTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							table.insert(UpdateCallBack["Text Color"],function() 
+								ButtonTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							end)
+	
+	
+							Button.Name = "Button"
+							Button.Parent = ButtonBG
+							Button.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							Button.BackgroundTransparency = 1.000
+							Button.Size = UDim2.new(1, 0, 1, 0)
+							Button.Font = Enum.Font.SourceSans
+							Button.Text = ""
+							Button.TextColor3 = Color3.fromRGB(0, 0, 0)
+							Button.TextSize = 14.000
+	
+							Button.MouseButton1Click:Connect(function()
+								Library_Function.ButtonEffect()
+							end)
+	
+							Button.MouseButton1Down:Connect(function()
+								Callback()
+							end)
+	
+						end
+	
+						function Section_Function.CreateLabel(Setting)
+	
+							local Title = tostring(Setting.Title)
+	
+							local LabelFrame = Instance.new("Frame")
+							local LabelBG = Instance.new("Frame")
+							local LabelCorner = Instance.new("UICorner")
+							local LabelTitle = Instance.new("TextLabel")
+	
+							LabelFrame.Name = "LabelFrame"
+							LabelFrame.Parent = Section
+							LabelFrame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							LabelFrame.BackgroundTransparency = 1.000
+							LabelFrame.Position = UDim2.new(0, 0, 0, 0)
+							LabelFrame.Size = UDim2.new(1, 0, 0, 0)
+							LabelFrame.AutomaticSize = Enum.AutomaticSize.Y
+	
+							LabelBG.Name = "LabelBG"
+							LabelBG.Parent = LabelFrame
+							LabelBG.AnchorPoint = Vector2.new(0.5, 0)
+							LabelBG.Position = UDim2.new(0.5, 0, 0, 0)
+							LabelBG.Size = UDim2.new(1, -10, 0, -10)
+							LabelBG.BackgroundColor3 = getgenv().UIColor["Label Color"]
+							LabelBG.AutomaticSize = Enum.AutomaticSize.Y
+							table.insert(UpdateCallBack["Label Color"],function() 
+								LabelBG.BackgroundColor3 = getgenv().UIColor["Label Color"]
+							end)
+							LabelBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+								LabelBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							end)
+	
+							LabelCorner.CornerRadius = UDim.new(0, 4)
+							LabelCorner.Name = "LabelCorner"
+							LabelCorner.Parent = LabelBG
+	
+							LabelTitle.Name = "TextColor"
+							LabelTitle.Parent = LabelBG
+							LabelTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							LabelTitle.BackgroundTransparency = 1.000
+							LabelTitle.Position = UDim2.new(0, 10, 0, 3)
+							LabelTitle.Size = UDim2.new(1, -20, 1, 0)
+							LabelTitle.Font = Enum.Font.GothamBlack
+							LabelTitle.Text = Title
+							LabelTitle.TextSize = 14.000
+							LabelTitle.TextXAlignment = Enum.TextXAlignment.Left
+							LabelTitle.AutomaticSize = Enum.AutomaticSize.Y
+							LabelTitle.TextWrapped = true
+							LabelTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							table.insert(UpdateCallBack["Text Color"],function() 
+								LabelTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							end)
+	
+							local label_func = {}
+	
+								function label_func.SetText(text)
+									LabelTitle.Text = text
+								end
+	
+								function label_func.SetColor(color)
+									LabelTitle.TextColor3 = color
+								end
+	
+							return label_func
+						end
+	
+						function Section_Function.CreateDropdown(Setting, Callback)
+	
+							local Title = tostring(Setting.Title)
+							local List = Setting.List
+							local Search = Setting.Search or false
+							local Selected = Setting.Selected or false
+							local Default = Setting.Default
+							local Callback = Callback or function() end
+							local IndexTable = Setting.IndexTable
+							local pairs = Setting.SortPairs or pairs
 
-		if siriusValues.frameProfile.frameNotificationCooldown > 0 then
-			siriusValues.frameProfile.frameNotificationCooldown -= 1
+							local DropdownFrame = Instance.new("Frame")
+							local Dropdownbg = Instance.new("Frame")
+							local Dropdowncorner = Instance.new("UICorner")
+							local Topdrop = Instance.new("Frame")
+							local UICorner = Instance.new("UICorner")
+							local ImgDrop = Instance.new("ImageLabel")
+							local DropdownButton = Instance.new("TextButton")
+							local Dropdownlisttt = Instance.new("Frame")
+							local DropdownScroll = Instance.new("ScrollingFrame")
+							local ScrollContainer = Instance.new("Frame")
+							local ScrollContainerList = Instance.new("UIListLayout")
+	
+	
+							local Dropdowntitle; 
+							if Search then 
+								Dropdowntitle = Instance.new("TextBox")
+								DropdownButton.Visible = false
+							else
+								Dropdowntitle = Instance.new("TextLabel")
+							end
+	
+	
+							DropdownFrame.Name = Title.."DropdownFrame"
+							DropdownFrame.Parent = Section
+							DropdownFrame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							DropdownFrame.BackgroundTransparency = 1.000
+							DropdownFrame.Position = UDim2.new(0, 0, 0.473684222, 0)
+							DropdownFrame.Size = UDim2.new(1, 0, 0, 25)
+	
+							Dropdownbg.Name = "Background1"
+							Dropdownbg.Parent = DropdownFrame
+							Dropdownbg.AnchorPoint = Vector2.new(0.5, 0.5)
+							Dropdownbg.Position = UDim2.new(0.5, 0, 0.5, 0)
+							Dropdownbg.Size = UDim2.new(1, -10, 1, 0)
+							Dropdownbg.ClipsDescendants = true
+							Dropdownbg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							table.insert(UpdateCallBack["Background 1 Color"],function() 
+								Dropdownbg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							end)
+							Dropdownbg.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+								Dropdownbg.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							end)
+	
+							Dropdowncorner.CornerRadius = UDim.new(0, 4)
+							Dropdowncorner.Name = "Dropdowncorner"
+							Dropdowncorner.Parent = Dropdownbg
+	
+							Topdrop.Name = "Background2"
+							Topdrop.Parent = Dropdownbg
+							Topdrop.Size = UDim2.new(1, 0, 0, 25)
+							Topdrop.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							table.insert(UpdateCallBack["Background 2 Color"],function() 
+								Topdrop.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							end)
+							Topdrop.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+								Topdrop.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							end)
+	
+	
+							UICorner.CornerRadius = UDim.new(0, 4)
+							UICorner.Parent = Topdrop
+	
+							Dropdowntitle.Name = "TextColorPlaceholder"
+							Dropdowntitle.Parent = Topdrop
+							Dropdowntitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							Dropdowntitle.BackgroundTransparency = 1.000
+							Dropdowntitle.Position = UDim2.new(0, 10, 0, 0)
+							Dropdowntitle.Size = UDim2.new(1, -40, 1, 0)
+							Dropdowntitle.Font = Enum.Font.GothamBlack
+							Dropdowntitle.Text = ''
+							Dropdowntitle.TextSize = 14.000
+							Dropdowntitle.TextXAlignment = Enum.TextXAlignment.Left
+							Dropdowntitle.ClipsDescendants = true
+							local Sel = Instance.new("IntValue",Dropdowntitle)
+							Sel.Value=-1
+							if Default and table.find(List,Default) then 
+								Sel.Value=table.find(List,Default)
+							end
+							if not Selected then
+								if Search then
+									Dropdowntitle.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+									Dropdowntitle.PlaceholderText = Title..': '..tostring(Default); 
+									table.insert(UpdateCallBack["Placeholder Text Color"],function() 
+										Dropdowntitle.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+									end)
+								else
+									Dropdowntitle.Text = Title..': '..tostring(Default); 
+								end
+							else
+								if Search then
+									Dropdowntitle.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+									Dropdowntitle.PlaceholderText = Title..': '..tostring(Default); 
+									table.insert(UpdateCallBack["Placeholder Text Color"],function() 
+										Dropdowntitle.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+									end)
+								else
+									Dropdowntitle.Text = Title..': '..tostring(Default); 
+								end
+							end
+							Dropdowntitle.TextColor3 = getgenv().UIColor["Text Color"]
+							table.insert(UpdateCallBack["Text Color"],function() 
+								Dropdowntitle.TextColor3 = getgenv().UIColor["Text Color"]
+							end)
+	
+							ImgDrop.Name = "ImgDrop"
+							ImgDrop.Parent = Topdrop
+							ImgDrop.AnchorPoint = Vector2.new(1, 0.5)
+							ImgDrop.BackgroundTransparency = 1.000
+							ImgDrop.BorderColor3 = Color3.fromRGB(27, 42, 53)
+							ImgDrop.Position = UDim2.new(1, -6, 0.5, 0)
+							ImgDrop.Size = UDim2.new(0, 15, 0, 15)
+							ImgDrop.Image = "rbxassetid://6954383209"
+							ImgDrop.ImageColor3 = getgenv().UIColor["Dropdown Icon Color"]
+							table.insert(UpdateCallBack["Dropdown Icon Color"],function() 
+								ImgDrop.ImageColor3 = getgenv().UIColor["Dropdown Icon Color"]
+							end)
+	
+							DropdownButton.Name = "DropdownButton"
+							DropdownButton.Parent = Topdrop
+							DropdownButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							DropdownButton.BackgroundTransparency = 1.000
+							DropdownButton.Size = UDim2.new(1, 0, 1, 0)
+							DropdownButton.Font = Enum.Font.GothamBold
+							DropdownButton.Text = ""
+							DropdownButton.TextColor3 = Color3.fromRGB(230, 230, 230)
+							DropdownButton.TextSize = 14.000
+	
+							Dropdownlisttt.Name = "Dropdownlisttt"
+							Dropdownlisttt.Parent = Dropdownbg
+							Dropdownlisttt.BackgroundTransparency = 1.000
+							Dropdownlisttt.BorderSizePixel = 0
+							Dropdownlisttt.Position = UDim2.new(0, 0, 0, 25)
+							Dropdownlisttt.Size = UDim2.new(1, 0, 0, 25)
+							Dropdownlisttt.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	
+							DropdownScroll.Name = "DropdownScroll"
+							DropdownScroll.Parent = Dropdownlisttt
+							DropdownScroll.Active = true
+							DropdownScroll.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							DropdownScroll.BackgroundTransparency = 1.000
+							DropdownScroll.BorderSizePixel = 0
+							DropdownScroll.Size = UDim2.new(1, 0, 1, 0)
+							DropdownScroll.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+							DropdownScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+							DropdownScroll.ScrollBarThickness = 5
+							DropdownScroll.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+	
+							ScrollContainer.Name = "ScrollContainer"
+							ScrollContainer.Parent = DropdownScroll
+							ScrollContainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							ScrollContainer.BackgroundTransparency = 1.000
+							ScrollContainer.Position = UDim2.new(0, 5, 0, 5)
+							ScrollContainer.Size = UDim2.new(1, -15, 1, -5)
+	
+							ScrollContainerList.Name = "ScrollContainerList"
+							ScrollContainerList.Parent = ScrollContainer
+							ScrollContainerList.SortOrder = Enum.SortOrder.LayoutOrder
+	
+							ScrollContainerList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+								DropdownScroll.CanvasSize = UDim2.new(0, 0, 0, 10 + ScrollContainerList.AbsoluteContentSize.Y + 5)
+							end)
+	
+							local isbusy = false
+	
+							local found = {}
+	
+							local searchtable = {}
+							
+							local function edit()
+								for i in pairs(found) do
+									found[i] = nil
+								end
+								for h, l in pairs(ScrollContainer:GetChildren()) do
+									if not l:IsA("UIListLayout") and not l:IsA("UIPadding") and not l:IsA('UIGridLayout') then
+										l.Visible = false
+									end
+								end
+								Dropdowntitle.Text = string.lower(Dropdowntitle.Text)
+							end
+	
+							local function SearchDropdown()
+								local Results = {}
+								for i, v in pairs(searchtable) do
+									if string.find(v, Dropdowntitle.Text) then
+										table.insert(found, v)
+									end
+								end
+								for a, b in pairs(ScrollContainer:GetChildren()) do
+									for c, d in pairs(found) do
+										if d == b.Name then
+											b.Visible = true
+										end
+									end
+								end
+							end
+	
+							local function clear_object_in_list()
+								for i,v in next, ScrollContainer:GetChildren() do 
+									if v:IsA('Frame') then 
+										v:Destroy()
+									end
+								end
+							end
+	
+							local ListNew = List
+							
+							local function refreshlist()
+								clear_object_in_list()
+	
+								searchtable = {}
+								
+								for i, v in pairs(ListNew) do
+									if not Selected then 
+									table.insert(searchtable, string.lower(v))
+									else 
+										table.insert(searchtable, string.lower(i))
+									end 
+								end
+	
+								if not Selected then 
+									for i,v in pairs (ListNew) do
+										local Dropval = Instance.new("Frame")
+										local DropvalCorner = Instance.new("UICorner")
+										local Line = Instance.new("Frame")
+										local InLine = Instance.new("Frame")
+										local LineCorner = Instance.new("UICorner")
+										local Dropvalcontainer = Instance.new("Frame")
+										local Dropvalbutton = Instance.new("TextButton")
+	
+										Dropval.Name = string.lower(v)
+										Dropval.Parent = ScrollContainer
+										Dropval.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+										Dropval.BackgroundTransparency = 1.000
+										Dropval.Size = UDim2.new(1, 0, 0, 25)
+	
+										DropvalCorner.CornerRadius = UDim.new(0, 4)
+										DropvalCorner.Name = "DropvalCorner"
+										DropvalCorner.Parent = Dropval
+	
+										Line.Name = "Line"
+										Line.Parent = Dropval
+										Line.AnchorPoint = Vector2.new(0, 0.5)
+										Line.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+										Line.BackgroundTransparency = 1.000
+										Line.Position = UDim2.new(0, 0, 0.5, 0)
+										Line.Size = UDim2.new(0, 14, 1, 0)
+	
+										InLine.Name = "InLine"
+										InLine.Parent = Line
+										InLine.AnchorPoint = Vector2.new(0.5, 0.5)
+										InLine.BorderSizePixel = 0
+										InLine.Position = UDim2.new(0.5, 0, 0.5, 0)
+										InLine.Size = UDim2.new(1, -10, 1, -10)
+										InLine.BackgroundTransparency = 1
+										InLine.BackgroundColor3 = getgenv().UIColor["Dropdown Selected Color"]
+										table.insert(UpdateCallBack["Dropdown Selected Color"],function() 
+											InLine.BackgroundColor3 = getgenv().UIColor["Dropdown Selected Color"]
+										end)
+	
+										LineCorner.Name = "LineCorner"
+										LineCorner.Parent = InLine
+	
+										Dropvalcontainer.Name = "Dropvalcontainer"
+										Dropvalcontainer.Parent = Dropval
+										Dropvalcontainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+										Dropvalcontainer.BackgroundTransparency = 1.000
+										Dropvalcontainer.Position = UDim2.new(0, 15, 0, 0)
+										Dropvalcontainer.Size = UDim2.new(1, -15, 1, 0)
+	
+										Dropvalbutton.Name = "TextColor"
+										Dropvalbutton.Parent = Dropvalcontainer
+										Dropvalbutton.Active = false
+										Dropvalbutton.BackgroundTransparency = 1.000
+										Dropvalbutton.Selectable = false
+										Dropvalbutton.Size = UDim2.new(1, 0, 1, 0)
+										Dropvalbutton.Font = Enum.Font.GothamBold
+										Dropvalbutton.Text = v
+										Dropvalbutton.TextSize = 14.000
+										Dropvalbutton.TextWrapped = true
+										Dropvalbutton.TextXAlignment = Enum.TextXAlignment.Left
+										Dropvalbutton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+										Dropvalbutton.TextColor3 = getgenv().UIColor["Text Color"]
+										table.insert(UpdateCallBack["Text Color"],function() 
+											Dropvalbutton.TextColor3 = getgenv().UIColor["Text Color"]
+										end)
+										
+										if Search then
+											if Sel.Value == i then
+												InLine.BackgroundTransparency = 0;
+											end
+										else
+											if Sel.Value == i then
+												InLine.BackgroundTransparency = 0;
+											end
+										end
+	
+										Dropvalbutton.MouseButton1Click:Connect(function()
+					
+											if Search then
+												Dropdowntitle.PlaceholderText = Title..': '..v
+												Sel.Value=i
+											   
+											else
+												Dropdowntitle.Text = Title..': '..v
+												Sel.Value=i
+											  
+											end
+	
+	
+											refreshlist()
+											if Callback then 
+												Callback(v,i)
+											end
+	
+										end)
+	
+										Dropvalbutton.MouseButton1Click:Connect(function()
+											Library_Function.ButtonEffect()
+										end)
+	
+									end
+	
+								else
+	
+									for i,v in pairs (ListNew) do
+												
+										local linetran = v and 0 or 1
+	
+										local Dropval = Instance.new("Frame")
+										local DropvalCorner = Instance.new("UICorner")
+										local Line = Instance.new("Frame")
+										local InLine = Instance.new("Frame")
+										local LineCorner = Instance.new("UICorner")
+										local Dropvalcontainer = Instance.new("Frame")
+										local Dropvalbutton = Instance.new("TextButton")
+	
+										Dropval.Name = string.lower(i)
+										Dropval.Parent = ScrollContainer
+										Dropval.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+										Dropval.BackgroundTransparency = 1.000
+										Dropval.Size = UDim2.new(1, 0, 0, 25)
+	
+										DropvalCorner.CornerRadius = UDim.new(0, 4)
+										DropvalCorner.Name = "DropvalCorner"
+										DropvalCorner.Parent = Dropval
+	
+										Line.Name = "Line"
+										Line.Parent = Dropval
+										Line.AnchorPoint = Vector2.new(0, 0.5)
+										Line.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+										Line.BackgroundTransparency = 1
+										Line.Position = UDim2.new(0, 0, 0.5, 0)
+										Line.Size = UDim2.new(0, 14, 1, 0)
+	
+										InLine.Name = "InLine"
+										InLine.Parent = Line
+										InLine.AnchorPoint = Vector2.new(0.5, 0.5)
+										InLine.BorderSizePixel = 0
+										InLine.Position = UDim2.new(0.5, 0, 0.5, 0)
+										InLine.Size = UDim2.new(1, -10, 1, -10)
+										InLine.BackgroundTransparency = linetran
+										InLine.BackgroundColor3 = getgenv().UIColor["Dropdown Selected Color"]
+										table.insert(UpdateCallBack["Dropdown Selected Color"],function() 
+											InLine.BackgroundColor3 = getgenv().UIColor["Dropdown Selected Color"]
+										end)
+	
+										LineCorner.Name = "LineCorner"
+										LineCorner.Parent = InLine
+	
+										Dropvalcontainer.Name = "Dropvalcontainer"
+										Dropvalcontainer.Parent = Dropval
+										Dropvalcontainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+										Dropvalcontainer.BackgroundTransparency = 1.000
+										Dropvalcontainer.Position = UDim2.new(0, 15, 0, 0)
+										Dropvalcontainer.Size = UDim2.new(1, -15, 1, 0)
+	
+										Dropvalbutton.Name = "TextColor"
+										Dropvalbutton.Parent = Dropvalcontainer
+										Dropvalbutton.Active = false
+										Dropvalbutton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+										Dropvalbutton.BackgroundTransparency = 1.000
+										Dropvalbutton.Selectable = false
+										Dropvalbutton.Size = UDim2.new(1, 0, 1, 0)
+										Dropvalbutton.Font = Enum.Font.GothamBold
+										Dropvalbutton.Text = i
+										Dropvalbutton.TextSize = 14.000
+										Dropvalbutton.TextWrapped = true
+										Dropvalbutton.TextXAlignment = Enum.TextXAlignment.Left
+										Dropvalbutton.TextColor3 = getgenv().UIColor["Text Color"]
+										table.insert(UpdateCallBack["Text Color"],function() 
+											Dropvalbutton.TextColor3 = getgenv().UIColor["Text Color"]
+										end)
+	
+										Dropvalbutton.MouseButton1Click:Connect(function()
+											Library_Function.ButtonEffect()
+										end)
+										
+										Dropvalbutton.MouseButton1Click:Connect(function()
+											v = not v 
+	
+											local linetran = v and 0 or 1
+	
+											TweenService:Create(InLine,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{BackgroundTransparency = linetran}):Play()
+	
+											if Callback then
+												Callback(i,v)
+												ListNew[i] = v
+											end
+										end)
+	
+									end
+	
+	
+								end
+	
+							end
+	
+							if Search then
+								Dropdowntitle.Changed:Connect(function()
+									edit()
+									SearchDropdown()
+								end)
+							end
+	
+							if typeof(Default) ~= 'table' then
+								Callback(Default)
+								if Search then
+									Dropdowntitle.PlaceholderText = Title..': '..tostring(Default)
+								else
+									Dropdowntitle.Text = Title..': '..tostring(Default)
+								end
+							elseif Selected then
+								for i,v in next, Default do
+									ListNew[i] = v
+									Callback(i,v)
+								end
+								Dropdowntitle.Text = ''
+								Dropdowntitle.PlaceholderText = Title..': '
+							end
+	
+							DropdownButton.MouseButton1Click:Connect(function()
+								refreshlist()
+								isbusy = not isbusy
+								local listsize = isbusy and UDim2.new(1, 0,0, 170) or UDim2.new(1, 0,0, 0)
+								local mainsize = isbusy and UDim2.new(1, 0,0, 200) or UDim2.new(1, 0,0, 25)
+								local DropCRotation = isbusy and 90 or 0
+	
+								TweenService:Create(Dropdownlisttt,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Size = listsize}):Play()
+								TweenService:Create(DropdownFrame,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Size = mainsize}):Play()
+								TweenService:Create(ImgDrop,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Rotation = DropCRotation}):Play()
+	
+							end)
+	
+							DropdownButton.MouseButton1Click:Connect(function()
+								Library_Function.ButtonEffect()
+							end)
+	
+							if Search then
+								Dropdowntitle.Focused:Connect(function()
+									refreshlist()
+									isbusy = not isbusy
+									local listsize = isbusy and UDim2.new(1, 0,0, 170) or UDim2.new(1, 0,0, 0)
+									local mainsize = isbusy and UDim2.new(1, 0,0, 200) or UDim2.new(1, 0,0, 25)
+									local DropCRotation = isbusy and 90 or 0
+		
+									TweenService:Create(Dropdownlisttt,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Size = listsize}):Play()
+									TweenService:Create(DropdownFrame,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Size = mainsize}):Play()
+									TweenService:Create(ImgDrop,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Rotation = DropCRotation}):Play()
+		
+								end)
+		
+								Dropdowntitle.Focused:Connect(function()
+									Library_Function.ButtonEffect()
+								end)
+							end
+	
+							local dropdown_function = {rf=refreshlist}
+	
+							function dropdown_function:ClearText()
+								if not Selected then
+									if Search then
+										Dropdowntitle.PlaceholderText = Title..': '
+									else
+										Dropdowntitle.Text = Title..': ' 
+									end
+								else
+									Dropdowntitle.Text = Title..': '
+								end
+							end
+	
+							function dropdown_function:GetNewList(List)
+								refreshlist()
+								isbusy = false
+								local listsize = isbusy and UDim2.new(1, 0,0, 170) or UDim2.new(1, 0,0, 0)
+								local mainsize = isbusy and UDim2.new(1, 0,0, 200) or UDim2.new(1, 0,0, 25)
+								local DropCRotation = isbusy and 90 or 0
+	
+								TweenService:Create(Dropdownlisttt,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Size = listsize}):Play()
+								TweenService:Create(DropdownFrame,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Size = mainsize}):Play()
+								TweenService:Create(ImgDrop,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{Rotation = DropCRotation}):Play()
+								
+								ListNew = {}
+								ListNew = List
+	
+								for i,v in next, ListNew do
+									if Selected then
+										Callback(i,v)
+									end
+								end
+	
+							end
+							
+							return dropdown_function
+	
+						end
+	
+						function Section_Function.CreateBind(Setting, Callback)
+	
+							local TitleText = tostring(Setting.Title) or ""
+							local KeyCode = Setting.Key
+							local Default = Setting.Default or Setting.Key
+							local Type = tostring(Default):match("UserInputType") and "UserInputType" or "KeyCode"
+							local Callback = Callback or function() end
+							
+							KeyCode = tostring(KeyCode):gsub("Enum.UserInputType.", "")
+							KeyCode = tostring(KeyCode):gsub("Enum.KeyCode.", "")
+	
+							local BindFrame = Instance.new("Frame")
+							local BindCorner = Instance.new("UICorner")
+							local BindBG = Instance.new("Frame")
+							local ButtonCorner = Instance.new("UICorner")
+							local BindButtonTitle = Instance.new("TextLabel")
+							local Button = Instance.new("TextButton")
+							local BindCor = Instance.new("Frame")
+							local ButtonCorner_2 = Instance.new("UICorner")
+							local Bindkey = Instance.new("TextButton")
+	
+							BindFrame.Name = TitleText.."bguvl"
+							BindFrame.Parent = Section
+							BindFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+							BindFrame.BackgroundTransparency = 1.000
+							BindFrame.Position = UDim2.new(0, 0, 0.208333328, 0)
+							BindFrame.Size = UDim2.new(1, 0, 0, 35)
+	
+							BindCorner.CornerRadius = UDim.new(0, 4)
+							BindCorner.Name = "BindCorner"
+							BindCorner.Parent = BindFrame
+	
+							BindBG.Name = "Background1"
+							BindBG.Parent = BindFrame
+							BindBG.AnchorPoint = Vector2.new(0.5, 0.5)
+							BindBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+							BindBG.Size = UDim2.new(1, -10, 1, 0)
+							BindBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							table.insert(UpdateCallBack["Background 1 Color"],function() 
+								BindBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							end)
+							BindBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+								BindBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							end)
+	
+							ButtonCorner.CornerRadius = UDim.new(0, 4)
+							ButtonCorner.Name = "ButtonCorner"
+							ButtonCorner.Parent = BindBG
+	
+							BindButtonTitle.Name = "TextColor"
+							BindButtonTitle.Parent = BindBG
+							BindButtonTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							BindButtonTitle.BackgroundTransparency = 1.000
+							BindButtonTitle.Position = UDim2.new(0, 10, 0, 0)
+							BindButtonTitle.Size = UDim2.new(1, -10, 1, 0)
+							BindButtonTitle.Font = Enum.Font.GothamBlack
+							BindButtonTitle.Text = TitleText
+							BindButtonTitle.TextSize = 14.000
+							BindButtonTitle.TextXAlignment = Enum.TextXAlignment.Left
+							BindButtonTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							table.insert(UpdateCallBack["Text Color"],function() 
+								BindButtonTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							end)
+	
+							BindCor.Name = "Background2"
+							BindCor.Parent = BindBG
+							BindCor.AnchorPoint = Vector2.new(1, 0.5)
+							BindCor.Position = UDim2.new(1, -5, 0.5, 0)
+							BindCor.Size = UDim2.new(0, 150, 0, 25)
+							BindCor.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							table.insert(UpdateCallBack["Background 2 Color"],function() 
+								BindCor.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							end)
+	
+							ButtonCorner_2.CornerRadius = UDim.new(0, 4)
+							ButtonCorner_2.Name = "ButtonCorner"
+							ButtonCorner_2.Parent = BindCor
+	
+							Bindkey.Name = "Bindkey"
+							Bindkey.Parent = BindCor
+							Bindkey.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							Bindkey.BackgroundTransparency = 1.000
+							Bindkey.Size = UDim2.new(1, 0, 1, 0)
+							Bindkey.Font = Enum.Font.GothamBold
+							Bindkey.Text = tostring(Default):gsub("Enum.KeyCode.", "");
+							Bindkey.TextSize = 14.000
+							Bindkey.TextColor3 = getgenv().UIColor["Text Color"]
+							table.insert(UpdateCallBack["Text Color"],function() 
+								Bindkey.TextColor3 = getgenv().UIColor["Text Color"]
+							end)
+	
+							local WhitelistedType = {
+								[Enum.UserInputType.MouseButton1] = "Mouse1";
+								[Enum.UserInputType.MouseButton2] = "Mouse2";
+								[Enum.UserInputType.MouseButton3] = "Mouse3";
+							};
+	
+							Bindkey.MouseButton1Click:Connect(function()
+								Library_Function.ButtonEffect()
+							end)
+			
+							Bindkey.MouseButton1Click:Connect(function()
+								local Connection;
+			
+								Bindkey.Text = "...";
+			
+								Connection = game:GetService("UserInputService").InputBegan:Connect(function(i)
+									if WhitelistedType[i.UserInputType] then
+										Bindkey.Text = WhitelistedType[i.UserInputType];
+										spawn(function()
+											wait(0.1)
+											Default = i.UserInputType;
+											Type = "UserInputType";
+										end);
+									elseif i.KeyCode ~= Enum.KeyCode.Unknown then
+										Bindkey.Text = tostring(i.KeyCode):gsub("Enum.KeyCode.", "");
+										spawn(function()
+											wait(0.1)
+											Default = i.KeyCode;
+											Type = "KeyCode";
+										end);
+									end;
+			
+			
+									Connection:Disconnect();
+								end);
+							end);
+			
+							game:GetService("UserInputService").InputBegan:Connect(function(i)
+								if (Default == i.UserInputType or Default == i.KeyCode) then
+									Callback(Default);
+								end;
+							end);
+							
+						end
+	
+						function Section_Function.CreateBox(Setting, Callback)
+	
+							local TitleText = tostring(Setting.Title) or ""
+							local Placeholder = tostring(Setting.Placeholder) or ""
+							local Default = Setting.Default or false
+							local Number_Only = Setting.Number or false 
+							local Callback = Callback or function() end
+	
+							local BoxFrame = Instance.new("Frame")
+							local BoxCorner = Instance.new("UICorner")
+							local BoxBG = Instance.new("Frame")
+							local ButtonCorner = Instance.new("UICorner")
+							local Boxtitle = Instance.new("TextLabel")
+							local BoxCor = Instance.new("Frame")
+							local ButtonCorner_2 = Instance.new("UICorner")
+							local Boxxx = Instance.new("TextBox")
+							local Lineeeee = Instance.new("Frame")
+							local UICorner = Instance.new("UICorner")
+	
+							BoxFrame.Name = "BoxFrame"
+							BoxFrame.Parent = Section
+							BoxFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+							BoxFrame.BackgroundTransparency = 1.000
+							BoxFrame.Position = UDim2.new(0, 0, 0.208333328, 0)
+							BoxFrame.Size = UDim2.new(1, 0, 0, 60)
+	
+							BoxCorner.CornerRadius = UDim.new(0, 4)
+							BoxCorner.Name = "BoxCorner"
+							BoxCorner.Parent = BoxFrame
+	
+							BoxBG.Name = "Background1"
+							BoxBG.Parent = BoxFrame
+							BoxBG.AnchorPoint = Vector2.new(0.5, 0.5)
+							BoxBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+							BoxBG.Size = UDim2.new(1, -10, 1, 0)
+							BoxBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							table.insert(UpdateCallBack["Background 1 Color"],function() 
+								BoxBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							end)
+							BoxBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+								BoxBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							end)
+	
+							ButtonCorner.CornerRadius = UDim.new(0, 4)
+							ButtonCorner.Name = "ButtonCorner"
+							ButtonCorner.Parent = BoxBG
+	
+							Boxtitle.Name = "TextColor"
+							Boxtitle.Parent = BoxBG
+							Boxtitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							Boxtitle.BackgroundTransparency = 1.000
+							Boxtitle.Position = UDim2.new(0, 10, 0, 0)
+							Boxtitle.Size = UDim2.new(1, -10, 0.5, 0)
+							Boxtitle.Font = Enum.Font.GothamBlack
+							Boxtitle.Text = TitleText
+							Boxtitle.TextSize = 14.000
+							Boxtitle.TextXAlignment = Enum.TextXAlignment.Left
+							Boxtitle.TextColor3 = getgenv().UIColor["Text Color"]
+							table.insert(UpdateCallBack["Text Color"],function() 
+								Boxtitle.TextColor3 = getgenv().UIColor["Text Color"]
+							end)
+	
+							BoxCor.Name = "Background2"
+							BoxCor.Parent = BoxBG
+							BoxCor.AnchorPoint = Vector2.new(1, 0.5)
+							BoxCor.ClipsDescendants = true
+							BoxCor.Position = UDim2.new(1, -5, 0, 40)
+							BoxCor.Size = UDim2.new(1, -10, 0, 25)
+							BoxCor.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							table.insert(UpdateCallBack["Background 2 Color"],function() 
+								BoxCor.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							end)
+	
+							ButtonCorner_2.CornerRadius = UDim.new(0, 4)
+							ButtonCorner_2.Name = "ButtonCorner"
+							ButtonCorner_2.Parent = BoxCor
+	
+							Boxxx.Name = "TextColorPlaceholder"
+							Boxxx.Parent = BoxCor
+							Boxxx.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							Boxxx.BackgroundTransparency = 1.000
+							Boxxx.Position = UDim2.new(0, 5, 0, 0)
+							Boxxx.Size = UDim2.new(1, -5, 1, 0)
+							Boxxx.Font = Enum.Font.GothamBold
+							Boxxx.PlaceholderText = Placeholder
+							Boxxx.Text = ""
+							Boxxx.TextSize = 14.000
+							Boxxx.TextXAlignment = Enum.TextXAlignment.Left
+							Boxxx.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+							Boxxx.TextColor3 = getgenv().UIColor["Text Color"]
+							table.insert(UpdateCallBack["Placeholder Text Color"],function() 
+								Boxxx.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+							end)
+							table.insert(UpdateCallBack["Text Color"],function() 
+								Boxxx.TextColor3 = getgenv().UIColor["Text Color"]
+							end)
+	
+							Lineeeee.Name = "TextNSBoxLineeeee"
+							Lineeeee.Parent = BoxCor
+							Lineeeee.BackgroundTransparency = 1.000
+							Lineeeee.Position = UDim2.new(0, 0, 1, -2)
+							Lineeeee.Size = UDim2.new(1, 0, 0, 6)
+							Lineeeee.BackgroundColor3 = getgenv().UIColor["Box Highlight Color"]
+							table.insert(UpdateCallBack["Box Highlight Color"],function() 
+								Lineeeee.BackgroundColor3 = getgenv().UIColor["Box Highlight Color"]
+							end)
+							
+	
+							UICorner.CornerRadius = UDim.new(1, 0)
+							UICorner.Parent = Lineeeee
+	
+							Boxxx.Focused:Connect(function() 
+								TweenService:Create(Lineeeee,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{BackgroundTransparency = 0}):Play()
+							end)
+	
+							Boxxx.Focused:Connect(function() 
+						
+								Library_Function.ButtonEffect()
+	
+							end)
+	
+							if Number_Only then 
+								Boxxx:GetPropertyChangedSignal("Text"):Connect(function()
+									if tonumber(Boxxx.Text) then 
+									else 
+										Boxxx.PlaceholderText = Placeholder
+										Boxxx.Text = ''
+									end
+								end)
+							end
+	
+							Boxxx.FocusLost:Connect(function()
+								TweenService:Create(Lineeeee,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{BackgroundTransparency = 1}):Play()
+								if Boxxx.Text ~= '' then
+									Callback(Boxxx.Text)
+								end
+							end)
+	
+							local textbox_function = {}
+	
+							if Default then
+								Boxxx.Text = Default
+								Callback(Default)
+							end
+	
+							function textbox_function.SetValue(Value)
+								Boxxx.Text = Value
+								Callback(Value)
+							end 
+	
+							return textbox_function;
+	
+	
+						end
+	
+						function Section_Function.CreateSlider(Setting, Callback)
+							
+							local TitleText = tostring(Setting.Title) or ""
+							local Min_Value = tonumber(Setting.Min) or 0
+							local Max_Value = tonumber(Setting.Max) or 100
+							local Precise = Setting.Precise or false
+							local DefaultValue = tonumber(Setting.Default) or 0
+							local Callback = Callback or function() end
+	
+							local SizeChia = 400;
+	
+							local Callback = Callback or function() end
+	
+							local SliderFrame = Instance.new("Frame")
+							local SliderCorner = Instance.new("UICorner")
+							local SliderBG = Instance.new("Frame")
+							local SliderBGCorner = Instance.new("UICorner")
+							local SliderTitle = Instance.new("TextLabel")
+							local SliderBar = Instance.new("Frame")
+							local SliderButton = Instance.new("TextButton")
+							local SliderBarCorner = Instance.new("UICorner")
+							local Bar = Instance.new("Frame")
+							local BarCorner = Instance.new("UICorner")
+							local Sliderboxframe = Instance.new("Frame")
+							local Sliderbox = Instance.new("UICorner")
+							local Sliderbox_2 = Instance.new("TextBox")
+	
+							SliderFrame.Name = TitleText..'buda'
+							SliderFrame.Parent = Section
+							SliderFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+							SliderFrame.BackgroundTransparency = 1.000
+							SliderFrame.Position = UDim2.new(0, 0, 0.208333328, 0)
+							SliderFrame.Size = UDim2.new(1, 0, 0, 50)
+	
+							SliderCorner.CornerRadius = UDim.new(0, 4)
+							SliderCorner.Name = "SliderCorner"
+							SliderCorner.Parent = SliderFrame
+	
+							SliderBG.Name = "Background1"
+							SliderBG.Parent = SliderFrame
+							SliderBG.AnchorPoint = Vector2.new(0.5, 0.5)
+							SliderBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+							SliderBG.Size = UDim2.new(1, -10, 1, 0)
+							SliderBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							table.insert(UpdateCallBack["Background 1 Color"],function() 
+								SliderBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							end)
+							SliderBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							table.insert(UpdateCallBack["Background 1 Transparency"],function() 
+								SliderBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							end)
+	
+	
+							SliderBGCorner.CornerRadius = UDim.new(0, 4)
+							SliderBGCorner.Name = "SliderBGCorner"
+							SliderBGCorner.Parent = SliderBG
+	
+							SliderTitle.Name = "TextColor"
+							SliderTitle.Parent = SliderBG
+							SliderTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							SliderTitle.BackgroundTransparency = 1.000
+							SliderTitle.Position = UDim2.new(0, 10, 0, 0)
+							SliderTitle.Size = UDim2.new(1, -10, 0, 25)
+							SliderTitle.Font = Enum.Font.GothamBlack
+							SliderTitle.Text = TitleText
+							SliderTitle.TextSize = 14.000
+							SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+							SliderTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							table.insert(UpdateCallBack["Text Color"],function() 
+								SliderTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							end)
+	
+							SliderBar.Name = "SliderBar"
+							SliderBar.Parent = SliderFrame
+							SliderBar.AnchorPoint = Vector2.new(.5, 0.5)
+							SliderBar.Position = UDim2.new(.5, 0, 0.5, 14)
+							SliderBar.Size = UDim2.new(0, 400, 0, 6)
+							SliderBar.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							table.insert(UpdateCallBack["Background 2 Color"],function() 
+								SliderBar.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							end)
+	
+							SliderButton.Name = "SliderButton "
+							SliderButton.Parent = SliderBar
+							SliderButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							SliderButton.BackgroundTransparency = 1.000
+							SliderButton.Size = UDim2.new(1, 0, 1, 0)
+							SliderButton.Font = Enum.Font.GothamBold
+							SliderButton.Text = ""
+							SliderButton.TextColor3 = Color3.fromRGB(230, 230, 230)
+							SliderButton.TextSize = 14.000
+	
+							SliderBarCorner.CornerRadius = UDim.new(1, 0)
+							SliderBarCorner.Name = "SliderBarCorner"
+							SliderBarCorner.Parent = SliderBar
+	
+							Bar.Name = "Bar"
+							Bar.BorderSizePixel = 0
+							Bar.Parent = SliderBar
+							Bar.Size = UDim2.new(0, 0, 1, 0)
+							Bar.BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+							table.insert(UpdateCallBack["Slider Line Color"],function() 
+								Bar.BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+							end)
+	
+	
+							BarCorner.CornerRadius = UDim.new(1, 0)
+							BarCorner.Name = "BarCorner"
+							BarCorner.Parent = Bar
+	
+							Sliderboxframe.Name = "Background2"
+							Sliderboxframe.Parent = SliderFrame
+							Sliderboxframe.AnchorPoint = Vector2.new(1, 0)
+							Sliderboxframe.Position = UDim2.new(1, -10, 0, 5)
+							Sliderboxframe.Size = UDim2.new(0, 150, 0, 25)
+							Sliderboxframe.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							table.insert(UpdateCallBack["Background 2 Color"],function() 
+								Sliderboxframe.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							end)
+	
+							Sliderbox.CornerRadius = UDim.new(0, 4)
+							Sliderbox.Name = "Sliderbox"
+							Sliderbox.Parent = Sliderboxframe
+	
+							Sliderbox_2.Name = "TextColor"
+							Sliderbox_2.Parent = Sliderboxframe
+							Sliderbox_2.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							Sliderbox_2.BackgroundTransparency = 1.000
+							Sliderbox_2.Size = UDim2.new(1, 0, 1, 0)
+							Sliderbox_2.Font = Enum.Font.GothamBold
+							Sliderbox_2.Text = ""
+							Sliderbox_2.TextSize = 14.000
+							Sliderbox_2.TextColor3 = getgenv().UIColor["Text Color"]
+							table.insert(UpdateCallBack["Text Color"],function() 
+								Sliderbox_2.TextColor3 = getgenv().UIColor["Text Color"]
+							end)
+	
+							SliderButton.MouseEnter:Connect(function()
+								TweenService:Create(Bar,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{BackgroundColor3 = getgenv().UIColor["Slider Highlight Color"]}):Play()
+							end)
+	
+							SliderButton.MouseLeave:Connect(function()
+								TweenService:Create(Bar,TweenInfo.new(getgenv().UIColor["Tween Animation 2 Speed"]),{BackgroundColor3 = getgenv().UIColor["Slider Line Color"]}):Play()
+							end)
+	
+							local mouse = game.Players.LocalPlayer:GetMouse()
+	
+							if DefaultValue then 
+								if DefaultValue <= Min_Value then DefaultValue = Min_Value elseif DefaultValue >= Max_Value then DefaultValue = Max_Value end
+								Bar.Size = UDim2.new(1 - ((Max_Value - DefaultValue) / (Max_Value - Min_Value)),0, 0, 6)
+								Sliderbox_2.Text = DefaultValue
+								Callback(DefaultValue)
+							end
+	
+							SliderButton.MouseButton1Down:Connect(function()
+								local value = Precise and  tonumber(string.format("%.1f",(((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))) or math.floor((((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))
+	
+								pcall(function()
+									Callback(value)
+									Sliderbox_2.Text = value
+								end)
+								Bar.Size = UDim2.new(0, math.clamp(mouse.X - Bar.AbsolutePosition.X, 0, SizeChia), 0, 6)
+								moveconnection = mouse.Move:Connect(function()   
+									local value = Precise and  tonumber(string.format("%.1f",(((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))) or math.floor((((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))
+									pcall(function()
+										Callback(value)
+										Sliderbox_2.Text = value
+									end)
+									Bar.Size = UDim2.new(0, math.clamp(mouse.X - Bar.AbsolutePosition.X, 0, SizeChia), 0, 6)
+								end)
+								releaseconnection = uis.InputEnded:Connect(function(Mouse)
+									if Mouse.UserInputType == Enum.UserInputType.MouseButton1 then
+										local value = Precise and  tonumber(string.format("%.1f",(((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))) or math.floor((((tonumber(Max_Value) - tonumber(Min_Value)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(Min_Value))
+	
+										pcall(function()
+											Callback(value)
+											Sliderbox_2.Text = value
+										end)
+										Bar.Size = UDim2.new(0, math.clamp(mouse.X - Bar.AbsolutePosition.X, 0, SizeChia), 0, 6)
+										moveconnection:Disconnect()
+										releaseconnection:Disconnect()
+									end
+								end)
+							end)
+	
+							local function GetSliderValue(Value)
+								if tonumber(Value) <= Min_Value then
+									Bar.Size = UDim2.new(0,(0 * SizeChia), 0, 6)
+									Sliderbox_2.Text = Min_Value
+									Callback(tonumber(Min_Value))
+	
+								elseif tonumber(Value) >= Max_Value then
+									Bar.Size = UDim2.new(0,(Max_Value  /  Max_Value * SizeChia), 0, 6)
+									Sliderbox_2.Text = Max_Value
+									Callback(tonumber(Max_Value))
+								else
+									Bar.Size = UDim2.new(1 - ((Max_Value - Value) / (Max_Value - Min_Value)),0, 0, 6)
+									Callback(tonumber(Value))
+								end
+							end
+	
+	
+							Sliderbox_2.FocusLost:Connect(function()
+								GetSliderValue(Sliderbox_2.Text)
+							end)
+	
+	
+							local slider_function = {}
+	
+							function slider_function.SetValue(Value)
+								GetSliderValue(Value)
+							end
+	
+							return slider_function
+	
+	
+						end
+	
+	
+					return Section_Function
+	
+				end
+	
+			return Page_Function
+	
 		end
+	
+		return Main_Function
+	
 	end
-end
+	
+	return Library
